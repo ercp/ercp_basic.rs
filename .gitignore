@@ -1,0 +1,18 @@
+##
+## Application artifacts
+##
+
+# direnv cache for Nix shells
+/.direnv/
+
+# Rust build directory
+/target/
+
+# Cargo lock file (not shared for libraries)
+Cargo.lock
+
+##
+## Editor artifacts
+##
+
+/.history/
