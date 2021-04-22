@@ -5,3 +5,10 @@ authors = ["Jean-Philippe Cugnet <jean-philippe@cugnet.eu>"]
 edition = "2018"
 
 [dependencies]
+embedded-crc-macros = "0.1.0"
+
+[build-dependencies]
+embedded-crc-macros = "0.1.0"
+
+[dev-dependencies]
+proptest = "1.0.0"
