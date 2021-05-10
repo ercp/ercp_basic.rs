@@ -1,26 +1,28 @@
 //! An implementation of ERCP Basic in Rust.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![deny(unsafe_code)]
 
-#[cfg(test)]
-#[macro_use]
-extern crate std;
-
+pub mod command;
+mod connection;
 mod crc;
 mod error;
-mod frame;
 mod frame_buffer;
+pub mod router;
 
-use error::{Error, IoError};
+use command::{nack_reason, Command, ACK, NACK};
+use connection::{Adapter, Connection};
+use error::Error;
 use frame_buffer::FrameBuffer;
+use router::Router;
 
 /// An ERCP Basic instance.
-// #[derive(Debug)]
-pub struct ERCPBasic<C: Connection, const MAX_LENGTH: usize> {
+#[derive(Debug)]
+pub struct ERCPBasic<A: Adapter, R: Router, const MAX_LENGTH: usize> {
     state: State,
     rx_frame: FrameBuffer<MAX_LENGTH>,
-    connection: C,
+    connection: Connection<A>,
+    router: R,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -48,11 +50,7 @@ enum Field {
     EOT,
 }
 
-pub trait Connection {
-    fn read(&mut self) -> Result<Option<u8>, IoError>;
-    fn write(&mut self, byte: u8) -> Result<(), IoError>;
-}
-
+// TODO: Put elsewhere.
 const EOT: u8 = 0x04;
 
 impl InitState {
@@ -75,24 +73,15 @@ impl InitState {
     }
 }
 
-#[cfg(test)]
-impl<C: Connection, const MAX_LENGTH: usize> std::fmt::Debug
-    for ERCPBasic<C, MAX_LENGTH>
+impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
+    ERCPBasic<A, R, MAX_LENGTH>
 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ERCPBasic")
-            .field("state", &self.state)
-            .field("rx_frame", &self.rx_frame)
-            .finish()
-    }
-}
-
-impl<C: Connection, const MAX_LENGTH: usize> ERCPBasic<C, MAX_LENGTH> {
-    pub fn new(connection: C) -> Self {
+    pub fn new(adapter: A, router: R) -> Self {
         Self {
             state: State::Ready,
             rx_frame: FrameBuffer::new(),
-            connection,
+            router,
+            connection: Connection::new(adapter),
         }
     }
 
@@ -103,6 +92,91 @@ impl<C: Connection, const MAX_LENGTH: usize> ERCPBasic<C, MAX_LENGTH> {
                 Ok(None) => break,
                 Err(_) => todo!(),
             }
+        }
+    }
+
+    /// Returns wether a complete frame has been received.
+    ///
+    /// If it returns `true`, you should then call `process`.
+    pub fn complete_frame_received(&self) -> bool {
+        self.state == State::Complete
+    }
+
+    /// Returns the next command to process.
+    pub fn next_command(&self) -> Option<Result<Command, Error>> {
+        if self.complete_frame_received() {
+            Some(self.rx_frame.check_frame())
+        } else {
+            None
+        }
+    }
+
+    // TODO: Async version.
+    /// Blocks until a complete frame has been received.
+    pub fn wait_for_command(&mut self) -> Result<Command, Error> {
+        while !self.complete_frame_received() {
+            // TODO: Do different things depending on features.
+
+            // TODO: Only with the blocking feature.
+            self.handle_data()
+
+            // TODO: WFI on Cortex-M.
+            // TODO: Timeout (idea: use a struct field)
+        }
+
+        self.rx_frame.check_frame()
+    }
+
+    pub fn process(&mut self) {
+        // TODO: Use next_command once it is in a sub-struct.
+        if self.complete_frame_received() {
+            match self.rx_frame.check_frame() {
+                Ok(command) => {
+                    if let Some(reply) = self.router.route(command) {
+                        self.connection.send(reply);
+                    }
+                }
+
+                Err(Error::InvalidCRC) => {
+                    let nack = Command::new(NACK, &[nack_reason::INVALID_CRC])
+                        .unwrap();
+
+                    self.notify(nack);
+                }
+
+                Err(_) => unreachable!(),
+            }
+
+            self.reset_state();
+        }
+    }
+
+    pub fn command(&mut self, command: Command) -> Result<Command, Error> {
+        self.connection.send(command)?;
+
+        // TODO: When to reset the frame? It is not possible here since we don’t
+        // copy the value. Maybe we should?
+        // self.rx_frame.reset();
+
+        self.wait_for_command()
+    }
+
+    pub fn notify(&mut self, command: Command) -> Result<(), Error> {
+        self.connection.send(command)?;
+        Ok(())
+    }
+
+    pub fn ping(&mut self) -> Result<(), Error> {
+        let reply = self.command(Command::ping())?;
+
+        // TODO: Reset the frame buffer. Is it here, wouldn’t it be better to
+        // copy the command instead?
+
+        if reply.command() == ACK {
+            Ok(())
+        } else {
+            // TODO: Better error.
+            Err(Error::OtherError)
         }
     }
 
@@ -143,9 +217,12 @@ impl<C: Connection, const MAX_LENGTH: usize> ERCPBasic<C, MAX_LENGTH> {
                     }
 
                     Err(Error::TooLong) => {
-                        self.state = State::Ready;
-                        self.rx_frame.reset();
-                        // TODO: Nack(TOO_LONG)
+                        self.reset_state();
+
+                        let nack = Command::new(NACK, &[nack_reason::TOO_LONG])
+                            .unwrap();
+
+                        self.notify(nack);
                     }
 
                     Err(_) => unreachable!(),
@@ -171,8 +248,7 @@ impl<C: Connection, const MAX_LENGTH: usize> ERCPBasic<C, MAX_LENGTH> {
                         self.state = State::Complete;
                     } else {
                         // Unexpected value => reset.
-                        self.state = State::Ready;
-                        self.rx_frame.reset();
+                        self.reset_state();
                     }
                 }
             },
@@ -183,90 +259,81 @@ impl<C: Connection, const MAX_LENGTH: usize> ERCPBasic<C, MAX_LENGTH> {
         }
     }
 
-    /// Returns wether a complete frame has been received.
-    ///
-    /// If it returns `true`, you should then call `process`.
-    pub fn complete_frame_received(&self) -> bool {
-        self.state == State::Complete
+    fn reset_state(&mut self) {
+        self.state = State::Ready;
+        self.rx_frame.reset();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use connection::tests::TestAdapter;
     use crc::crc;
+    use error::IoError;
+    use router::DefaultRouter;
+
     use proptest::collection::vec;
     use proptest::prelude::*;
 
-    struct TestConnection {
-        tx_buffer: [u8; 264],
-        tx_size: usize,
-        rx_buffer: [u8; 264],
-        rx_size: usize,
-        rx_ptr: usize,
+    #[derive(Debug, Default)]
+    struct TestRouter {
+        last_command: Option<OwnedCommand>,
+        reply: Option<OwnedCommand>,
     }
 
-    impl TestConnection {
-        fn test_send(&mut self, data: &[u8]) {
-            self.rx_size = 0;
+    #[derive(Debug, PartialEq)]
+    struct OwnedCommand {
+        command: u8,
+        value: Vec<u8>,
+    }
 
-            for &byte in data {
-                self.rx_buffer[self.rx_size] = byte;
-                self.rx_size += 1;
-            }
-        }
-
-        fn test_receive(&mut self) -> &[u8] {
-            &self.tx_buffer[0..self.tx_size]
+    impl Router for TestRouter {
+        fn route(&mut self, command: Command) -> Option<Command> {
+            self.last_command = Some(command.into());
+            self.reply.as_ref().map(|command| {
+                Command::new(command.command, &command.value).unwrap()
+            })
         }
     }
 
-    impl Default for TestConnection {
-        fn default() -> Self {
-            TestConnection {
-                tx_buffer: [0; 264],
-                tx_size: 0,
-                rx_buffer: [0; 264],
-                rx_size: 0,
-                rx_ptr: 0,
+    impl<'a> From<Command<'a>> for OwnedCommand {
+        fn from(command: Command<'a>) -> Self {
+            Self {
+                command: command.command(),
+                value: command.value().into(),
             }
         }
     }
 
-    impl Connection for TestConnection {
-        fn read(&mut self) -> Result<Option<u8>, IoError> {
-            if self.rx_ptr < self.rx_size {
-                let byte = self.rx_buffer[self.rx_ptr];
-                self.rx_ptr += 1;
-
-                Ok(Some(byte))
-            } else {
-                Ok(None)
-            }
-        }
-
-        fn write(&mut self, byte: u8) -> Result<(), IoError> {
-            self.tx_buffer[self.tx_size] = byte;
-            self.tx_size += 1;
-            Ok(())
+    impl<'a> PartialEq<Command<'a>> for OwnedCommand {
+        fn eq(&self, other: &Command) -> bool {
+            self.command == other.command() && self.value == other.value()
         }
     }
 
-    fn setup(test: impl Fn(ERCPBasic<TestConnection, 255>)) {
-        let connection = TestConnection::default();
-        let ercp = ERCPBasic::new(connection);
+    const MAX_LENGTH: usize = u8::MAX as usize;
+
+    ////////////////////////////// Test setup //////////////////////////////
+
+    fn setup(test: impl Fn(ERCPBasic<TestAdapter, TestRouter, MAX_LENGTH>)) {
+        let adapter = TestAdapter::default();
+        let router = TestRouter::default();
+        let ercp = ERCPBasic::new(adapter, router);
         test(ercp);
     }
 
     /////////////////////////////// Strategy ///////////////////////////////
 
-    fn ercp(
+    fn ercp<'a>(
         state: State,
-    ) -> impl Strategy<Value = ERCPBasic<TestConnection, 255>> {
+    ) -> impl Strategy<Value = ERCPBasic<TestAdapter, TestRouter, MAX_LENGTH>>
+    {
         (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
             move |(command, value)| {
-                let connection = TestConnection::default();
-                let mut ercp = ERCPBasic::new(connection);
+                let adapter = TestAdapter::default();
+                let router = TestRouter::default();
+                let mut ercp = ERCPBasic::new(adapter, router);
 
                 while ercp.state != state {
                     match ercp.state {
@@ -480,8 +547,12 @@ mod tests {
         fn receive_at_length_stage_goes_back_to_ready_if_length_is_too_long(
             length in 96..=u8::MAX,
         ) {
-            let connection = TestConnection::default();
-            let mut ercp = ERCPBasic::<TestConnection, 95>::new(connection);
+            let adapter = TestAdapter::default();
+            let mut ercp = ERCPBasic::<TestAdapter, DefaultRouter, 95>::new(
+                adapter,
+                DefaultRouter
+            );
+
             ercp.state = State::Receiving(Field::Length);
 
             ercp.receive(length);
@@ -494,8 +565,12 @@ mod tests {
         fn receive_at_length_stage_resets_the_rx_frame_if_length_is_too_long(
             length in 96..=u8::MAX,
         ) {
-            let connection = TestConnection::default();
-            let mut ercp = ERCPBasic::<TestConnection, 95>::new(connection);
+            let adapter = TestAdapter::default();
+            let mut ercp = ERCPBasic::<TestAdapter, DefaultRouter, 95>::new(
+                adapter,
+                DefaultRouter
+            );
+
             ercp.rx_frame.set_command(0x9D);
             ercp.state = State::Receiving(Field::Length);
 
@@ -504,18 +579,28 @@ mod tests {
         }
     }
 
-    // proptest! {
-    //     #[test]
-    //     fn receive_at_length_stage_sends_a_nack_if_length_is_too_long(
-    //         length in 96..=u8::MAX,
-    //     ) {
-    //         let mut ercp = ERCPBasic::<95>::new();
-    //         ercp.state = State::Receiving(Field::Length);
+    proptest! {
+        #[test]
+        fn receive_at_length_stage_sends_a_nack_if_length_is_too_long(
+            length in 96..=u8::MAX,
+        ) {
+            let adapter = TestAdapter::default();
+            let mut ercp = ERCPBasic::<TestAdapter, DefaultRouter, 95>::new(
+                adapter,
+                DefaultRouter
+            );
 
-    //         ercp.receive(length);
-    //         todo!(); // TODO:
-    //     }
-    // }
+            ercp.state = State::Receiving(Field::Length);
+
+            let nack = Command::new(NACK, &[nack_reason::TOO_LONG]).unwrap();
+
+            ercp.receive(length);
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                nack.as_frame()
+            );
+        }
+    }
 
     //////////////////// State::Receive(Field::Value) //////////////////////
 
@@ -643,6 +728,32 @@ mod tests {
         }
     }
 
+    ////////////////////////////// Data input //////////////////////////////
+
+    #[test]
+    fn handle_data_processes_incoming_data() {
+        setup(|mut ercp| {
+            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
+            ercp.connection.adapter().test_send(&frame);
+            ercp.handle_data();
+            assert_eq!(ercp.state, State::Complete);
+        });
+    }
+
+    #[test]
+    fn handle_data_does_nothing_on_no_data() {
+        setup(|mut ercp| {
+            ercp.handle_data();
+            assert_eq!(ercp.state, State::Ready);
+        });
+    }
+
+    // #[test]
+    // fn handle_data_does_something_with_read_errors() {
+    //     // TODO: Error handling.
+    //     todo!();
+    // }
+
     #[test]
     fn complete_frame_received_returns_true_in_complete_state() {
         setup(|mut ercp| {
@@ -658,23 +769,331 @@ mod tests {
         });
     }
 
-    /////////////////////////// Data input/output //////////////////////////
+    proptest! {
+        #[test]
+        fn next_command_returns_the_received_command(
+            ercp in ercp(State::Complete),
+        ) {
+            let command = ercp.rx_frame.check_frame().unwrap();
+            assert_eq!(ercp.next_command(), Some(Ok(command)));
+        }
+    }
 
-    #[test]
-    fn handle_data_processes_incoming_data() {
-        setup(|mut ercp| {
-            let data = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
-            ercp.connection.test_send(&data);
-            ercp.handle_data();
-            assert_eq!(ercp.state, State::Complete);
-        });
+    proptest! {
+        #[test]
+        fn next_command_returns_an_error_if_the_received_frame_is_corrupted(
+            mut ercp in ercp(State::Complete),
+            bad_crc in 0..=u8::MAX,
+        ) {
+            prop_assume!(
+                bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
+            );
+
+            ercp.rx_frame.set_crc(bad_crc);
+            assert_eq!(ercp.next_command(), Some(Err(Error::InvalidCRC)));
+        }
+    }
+
+    // TODO: Enable when the design makes it possible.
+    // proptest! {
+    //     #[test]
+    //     fn next_command_resets_state_if_the_received_frame_is_corrupted(
+    //         mut ercp in ercp(State::Complete),
+    //         bad_crc in 0..=u8::MAX,
+    //     ) {
+    //         prop_assume!(
+    //             bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
+    //         );
+
+    //         ercp.rx_frame.set_crc(bad_crc);
+
+    //         let _ = ercp.next_command();
+    //         assert_eq!(ercp.state, State::Ready);
+    //         assert_eq!(ercp.rx_frame, FrameBuffer::default());
+    //     }
+    // }
+
+    proptest! {
+        #[test]
+        fn next_command_returns_none_if_no_command_waiting(
+            ercp in ercp(State::Ready),
+        ) {
+            assert_eq!(ercp.next_command(), None);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn wait_for_command_returns_the_received_command(
+            mut ercp in ercp(State::Complete),
+        ) {
+            let received = ercp.rx_frame.check_frame().unwrap();
+            let value = received.value().to_owned();
+            let command =
+                Command::new(received.command(), &value).unwrap();
+
+            assert_eq!(ercp.wait_for_command(), Ok(command));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn wait_for_command_returns_an_error_if_the_received_frame_is_corrupted(
+            mut ercp in ercp(State::Complete),
+            bad_crc in 0..=u8::MAX,
+        ) {
+            prop_assume!(
+                bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
+            );
+
+            ercp.rx_frame.set_crc(bad_crc);
+            assert_eq!(ercp.wait_for_command(), Err(Error::InvalidCRC));
+        }
+    }
+
+    // TODO: Enable when the design makes it possible.
+    // proptest! {
+    //     #[test]
+    //     fn wait_for_command_resets_state_if_the_received_frame_is_corrupted(
+    //         mut ercp in ercp(State::Complete),
+    //         bad_crc in 0..=u8::MAX,
+    //     ) {
+    //         prop_assume!(
+    //             bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
+    //         );
+
+    //         ercp.rx_frame.set_crc(bad_crc);
+
+    //         let _ = ercp.wait_for_command();
+    //         assert_eq!(ercp.state, State::Ready);
+    //         assert_eq!(ercp.rx_frame, FrameBuffer::default());
+    //     }
+    // }
+
+    // proptest! {
+    //     #[test]
+    //     fn wait_for_command_waits_until_a_frame_has_been_received(
+    //         ercp in ercp(State::Ready),
+    //     ) {
+    //         // TODO:
+    //         todo!()
+    //     }
+    // }
+
+    ////////////////////////// Command processing //////////////////////////
+
+    proptest! {
+        #[test]
+        fn process_routes_the_command_to_its_handler(
+            mut ercp in ercp(State::Complete),
+        ) {
+            let command: OwnedCommand =
+                ercp.rx_frame.check_frame().unwrap().into();
+
+            ercp.process();
+
+            assert!(ercp.router.last_command.is_some());
+            let expected_command = ercp.router.last_command.unwrap();
+
+            assert_eq!(expected_command, command);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn process_sends_the_reply_if_there_is_some(
+            mut ercp in ercp(State::Complete),
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
+        ) {
+            let reply = Command::new(command, &value).unwrap();
+            let expected_frame = reply.as_frame();
+
+            ercp.router.reply = Some(reply.into());
+
+            ercp.process();
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                expected_frame
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn process_does_not_send_a_reply_if_there_is_none(
+            mut ercp in ercp(State::Complete),
+        ) {
+            ercp.router.reply = None;
+
+            ercp.process();
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                &[]
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn process_sends_a_nack_if_crc_is_invalid(
+            mut ercp in ercp(State::Complete),
+            bad_crc in 0..=u8::MAX,
+        ) {
+            prop_assume!(bad_crc != ercp.rx_frame.crc());
+            ercp.rx_frame.set_crc(bad_crc);
+
+            let nack = Command::new(NACK, &[nack_reason::INVALID_CRC]).unwrap();
+
+            ercp.process();
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                nack.as_frame()
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn process_resets_the_state_machine(
+            mut ercp in ercp(State::Complete),
+        ) {
+            ercp.process();
+            assert_eq!(ercp.state, State::Ready);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn process_resets_the_rx_frame(
+            mut ercp in ercp(State::Complete),
+        ) {
+            ercp.process();
+            assert_eq!(ercp.rx_frame, FrameBuffer::default());
+        }
+    }
+
+    ////////////////////////////// Data output /////////////////////////////
+
+    proptest! {
+        #[test]
+        fn command_writes_a_frame_on_the_connection(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let command = Command::new(command, &value).unwrap();
+                let expected_frame = command.as_frame();
+
+                // Ensure there is a reply not to block.
+                ercp.connection.adapter().test_send(&Command::ack().as_frame());
+
+                assert!(ercp.command(command).is_ok());
+                assert_eq!(
+                    ercp.connection.adapter().test_receive(),
+                    expected_frame
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn command_returns_the_reply(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(ercp.command(Command::ping()), Ok(reply));
+            });
+        }
     }
 
     #[test]
-    fn handle_data_does_nothing_on_no_data() {
+    fn command_returns_an_error_on_write_errors() {
         setup(|mut ercp| {
-            ercp.handle_data();
-            assert_eq!(ercp.state, State::Ready);
+            ercp.connection.adapter().write_error = Some(IoError::IoError);
+
+            assert_eq!(
+                ercp.command(Command::ping()),
+                Err(Error::IoError(IoError::IoError))
+            );
         });
+    }
+
+    proptest! {
+        #[test]
+        fn notify_writes_a_frame_on_the_connection(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let command = Command::new(command, &value).unwrap();
+                let expected_frame = command.as_frame();
+
+                assert_eq!(ercp.notify(command), Ok(()));
+                assert_eq!(
+                    ercp.connection.adapter().test_receive(),
+                    expected_frame
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn notify_returns_an_error_on_write_error(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let command = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().write_error = Some(IoError::IoError);
+
+                assert_eq!(
+                    ercp.notify(command),
+                    Err(Error::IoError(IoError::IoError))
+                );
+            })
+        }
+    }
+
+    /////////////////////////////// Commands ///////////////////////////////
+
+    #[test]
+    fn ping_sends_a_ping() {
+        setup(|mut ercp| {
+            let expected_frame = Command::ping().as_frame();
+            let reply_frame = Command::ack().as_frame();
+
+            ercp.connection.adapter().test_send(&reply_frame);
+
+            assert_eq!(ercp.ping(), Ok(()));
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                expected_frame
+            );
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn ping_returns_an_error_on_unexpected_reply(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != ACK);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                // TODO: Better error.
+                assert_eq!(ercp.ping(), Err(Error::OtherError));
+            });
+        }
     }
 }

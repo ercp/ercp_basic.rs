@@ -1,11 +1,11 @@
 // TODO: Better documentation.
 //! ERCP Basic framing tools.
 
+use crate::command::Command;
 use crate::error::Error;
-use crate::frame::Frame;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct FrameBuffer<const MAX_LENGTH: usize> {
+pub(crate) struct FrameBuffer<const MAX_LENGTH: usize> {
     // state: Field,
     command: u8,
     length: u8,
@@ -14,6 +14,7 @@ pub struct FrameBuffer<const MAX_LENGTH: usize> {
     crc: u8,
 }
 
+// IDEA: Derive default when it is implemented for arbritrary-sized arrays.
 impl<const MAX_LENGTH: usize> Default for FrameBuffer<MAX_LENGTH> {
     fn default() -> Self {
         Self {
@@ -88,11 +89,11 @@ impl<const MAX_LENGTH: usize> FrameBuffer<MAX_LENGTH> {
         self.size == self.length.into()
     }
 
-    pub fn check_frame(&self) -> Result<Frame, Error> {
-        let frame = Frame::new(self.command(), self.value())?;
+    pub fn check_frame(&self) -> Result<Command, Error> {
+        let command = Command::new(self.command(), self.value())?;
 
-        if self.crc() == frame.crc() {
-            Ok(frame)
+        if self.crc() == command.crc() {
+            Ok(command)
         } else {
             Err(Error::InvalidCRC)
         }
@@ -102,7 +103,7 @@ impl<const MAX_LENGTH: usize> FrameBuffer<MAX_LENGTH> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{crc::crc, frame};
+    use crate::crc::crc;
     use proptest::collection::vec;
     use proptest::prelude::*;
 
@@ -336,14 +337,14 @@ mod test {
 
     proptest! {
         #[test]
-        fn check_frame_returs_a_frame_if_crc_is_valid(
+        fn check_frame_returs_a_command_if_crc_is_valid(
             frame_buffer in frame_buffer()
         ) {
-            let frame =
-                Frame::new(frame_buffer.command(), frame_buffer.value())
+            let command =
+                Command::new(frame_buffer.command(), frame_buffer.value())
                     .unwrap();
 
-            assert_eq!(frame_buffer.check_frame(), Ok(frame));
+            assert_eq!(frame_buffer.check_frame(), Ok(command));
         }
     }
 
