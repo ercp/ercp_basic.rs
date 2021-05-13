@@ -4,17 +4,21 @@
 #![deny(unsafe_code)]
 
 pub mod command;
-mod connection;
-mod crc;
-mod error;
-mod frame_buffer;
+pub mod error;
 pub mod router;
 
-use command::{nack_reason, Command, ACK, NACK};
-use connection::{Adapter, Connection};
-use error::Error;
+mod connection;
+mod crc;
+mod frame_buffer;
+
+pub use command::Command;
+pub use connection::Adapter;
+pub use error::Error;
+pub use router::{DefaultRouter, Router};
+
+use command::{nack_reason, ACK, NACK};
+use connection::Connection;
 use frame_buffer::FrameBuffer;
-use router::Router;
 
 /// An ERCP Basic instance.
 #[derive(Debug)]
@@ -118,7 +122,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
             // TODO: Do different things depending on features.
 
             // TODO: Only with the blocking feature.
-            self.handle_data()
+            self.handle_data();
 
             // TODO: WFI on Cortex-M.
             // TODO: Timeout (idea: use a struct field)

@@ -11,22 +11,6 @@ pub struct Command<'a> {
     value: &'a [u8],
 }
 
-#[repr(u8)]
-pub enum NackReason {
-    NoReason = 0x00,
-    TooLong = 0x01,
-    InvalidCRC = 0x02,
-    UnknownCommand = 0x03,
-    InvalidArguments = 0x04,
-}
-
-#[repr(u8)]
-pub enum Component {
-    Firmware = 0x00,
-    ERCPLib = 0x01,
-}
-
-// TODO: Différencier de cmd::*
 pub const PING: u8 = 0x00;
 pub const ACK: u8 = 0x01;
 pub const NACK: u8 = 0x02;
@@ -37,16 +21,6 @@ pub mod nack_reason {
     pub const INVALID_CRC: u8 = 0x02;
     pub const UNKNOWN_COMMAND: u8 = 0x03;
     pub const INVALID_ARGUMENTS: u8 = 0x04;
-}
-
-// TODO: Ce concept en plus propre (surtout utile pour ACK, utilisé souvent).
-pub mod cmd {
-    use super::Command;
-
-    pub const PING: Command = Command {
-        command: super::PING,
-        value: &[],
-    };
 }
 
 impl<'a> Command<'a> {
