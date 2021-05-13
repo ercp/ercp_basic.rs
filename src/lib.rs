@@ -22,7 +22,7 @@ use frame_buffer::FrameBuffer;
 
 /// An ERCP Basic instance.
 #[derive(Debug)]
-pub struct ERCPBasic<A: Adapter, R: Router, const MAX_LENGTH: usize> {
+pub struct ErcpBasic<A: Adapter, R: Router, const MAX_LENGTH: usize> {
     state: State,
     rx_frame: FrameBuffer<MAX_LENGTH>,
     connection: Connection<A>,
@@ -78,7 +78,7 @@ impl InitState {
 }
 
 impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
-    ERCPBasic<A, R, MAX_LENGTH>
+    ErcpBasic<A, R, MAX_LENGTH>
 {
     pub fn new(adapter: A, router: R) -> Self {
         Self {
@@ -320,10 +320,10 @@ mod tests {
 
     ////////////////////////////// Test setup //////////////////////////////
 
-    fn setup(test: impl Fn(ERCPBasic<TestAdapter, TestRouter, MAX_LENGTH>)) {
+    fn setup(test: impl Fn(ErcpBasic<TestAdapter, TestRouter, MAX_LENGTH>)) {
         let adapter = TestAdapter::default();
         let router = TestRouter::default();
-        let ercp = ERCPBasic::new(adapter, router);
+        let ercp = ErcpBasic::new(adapter, router);
         test(ercp);
     }
 
@@ -331,13 +331,13 @@ mod tests {
 
     fn ercp<'a>(
         state: State,
-    ) -> impl Strategy<Value = ERCPBasic<TestAdapter, TestRouter, MAX_LENGTH>>
+    ) -> impl Strategy<Value = ErcpBasic<TestAdapter, TestRouter, MAX_LENGTH>>
     {
         (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
             move |(command, value)| {
                 let adapter = TestAdapter::default();
                 let router = TestRouter::default();
-                let mut ercp = ERCPBasic::new(adapter, router);
+                let mut ercp = ErcpBasic::new(adapter, router);
 
                 while ercp.state != state {
                     match ercp.state {
@@ -552,7 +552,7 @@ mod tests {
             length in 96..=u8::MAX,
         ) {
             let adapter = TestAdapter::default();
-            let mut ercp = ERCPBasic::<TestAdapter, DefaultRouter, 95>::new(
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 95>::new(
                 adapter,
                 DefaultRouter
             );
@@ -570,7 +570,7 @@ mod tests {
             length in 96..=u8::MAX,
         ) {
             let adapter = TestAdapter::default();
-            let mut ercp = ERCPBasic::<TestAdapter, DefaultRouter, 95>::new(
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 95>::new(
                 adapter,
                 DefaultRouter
             );
@@ -589,7 +589,7 @@ mod tests {
             length in 96..=u8::MAX,
         ) {
             let adapter = TestAdapter::default();
-            let mut ercp = ERCPBasic::<TestAdapter, DefaultRouter, 95>::new(
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 95>::new(
                 adapter,
                 DefaultRouter
             );
