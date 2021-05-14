@@ -5,7 +5,13 @@ use crate::command::*;
 
 /// An ERCP router.
 pub trait Router {
-    fn route(&mut self, command: Command) -> Option<Command> {
+    type Context;
+
+    fn route(
+        &mut self,
+        command: Command,
+        _: &mut Self::Context,
+    ) -> Option<Command> {
         self.default_routes(command)
     }
 
@@ -29,7 +35,9 @@ pub trait Router {
 #[derive(Debug)]
 pub struct DefaultRouter;
 
-impl Router for DefaultRouter {}
+impl Router for DefaultRouter {
+    type Context = ();
+}
 
 #[cfg(test)]
 mod tests {
@@ -40,7 +48,10 @@ mod tests {
 
     #[test]
     fn a_ping_replies_an_ack() {
-        assert_eq!(DefaultRouter.route(Command::ping()), Some(Command::ack()));
+        assert_eq!(
+            DefaultRouter.route(Command::ping(), &mut ()),
+            Some(Command::ack())
+        );
     }
 
     proptest! {
@@ -55,7 +66,7 @@ mod tests {
             let nack =
                 Command::new(NACK, &[nack_reason::UNKNOWN_COMMAND]).unwrap();
 
-            assert_eq!(DefaultRouter.route(command), Some(nack));
+            assert_eq!(DefaultRouter.route(command, &mut ()), Some(nack));
         }
     }
 }

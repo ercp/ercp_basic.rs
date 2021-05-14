@@ -131,12 +131,12 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
         self.rx_frame.check_frame()
     }
 
-    pub fn process(&mut self) {
+    pub fn process(&mut self, context: &mut R::Context) {
         // TODO: Use next_command once it is in a sub-struct.
         if self.complete_frame_received() {
             match self.rx_frame.check_frame() {
                 Ok(command) => {
-                    if let Some(reply) = self.router.route(command) {
+                    if let Some(reply) = self.router.route(command, context) {
                         self.connection.send(reply);
                     }
                 }
@@ -293,7 +293,9 @@ mod tests {
     }
 
     impl Router for TestRouter {
-        fn route(&mut self, command: Command) -> Option<Command> {
+        type Context = ();
+
+        fn route(&mut self, command: Command, _: &mut ()) -> Option<Command> {
             self.last_command = Some(command.into());
             self.reply.as_ref().map(|command| {
                 Command::new(command.command, &command.value).unwrap()
@@ -894,7 +896,7 @@ mod tests {
             let command: OwnedCommand =
                 ercp.rx_frame.check_frame().unwrap().into();
 
-            ercp.process();
+            ercp.process(&mut ());
 
             assert!(ercp.router.last_command.is_some());
             let expected_command = ercp.router.last_command.unwrap();
@@ -915,7 +917,7 @@ mod tests {
 
             ercp.router.reply = Some(reply.into());
 
-            ercp.process();
+            ercp.process(&mut ());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -930,7 +932,7 @@ mod tests {
         ) {
             ercp.router.reply = None;
 
-            ercp.process();
+            ercp.process(&mut ());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 &[]
@@ -949,7 +951,7 @@ mod tests {
 
             let nack = Command::new(NACK, &[nack_reason::INVALID_CRC]).unwrap();
 
-            ercp.process();
+            ercp.process(&mut ());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 nack.as_frame()
@@ -962,7 +964,7 @@ mod tests {
         fn process_resets_the_state_machine(
             mut ercp in ercp(State::Complete),
         ) {
-            ercp.process();
+            ercp.process(&mut ());
             assert_eq!(ercp.state, State::Ready);
         }
     }
@@ -972,7 +974,7 @@ mod tests {
         fn process_resets_the_rx_frame(
             mut ercp in ercp(State::Complete),
         ) {
-            ercp.process();
+            ercp.process(&mut ());
             assert_eq!(ercp.rx_frame, FrameBuffer::default());
         }
     }
