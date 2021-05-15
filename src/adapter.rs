@@ -1,6 +1,12 @@
 // TODO: Module doc.
 //! ERCP connection adapter.
 
+#[cfg(feature = "embedded")]
+mod embedded;
+
+#[cfg(feature = "embedded")]
+pub use embedded::SerialAdapter;
+
 use crate::error::IoError;
 
 /// An ERCP connection adapter.
