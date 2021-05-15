@@ -4,8 +4,14 @@
 #[cfg(feature = "embedded")]
 mod embedded;
 
+#[cfg(feature = "host")]
+mod host;
+
 #[cfg(feature = "embedded")]
 pub use embedded::SerialAdapter;
+
+#[cfg(feature = "host")]
+pub use host::SerialPortAdapter;
 
 use crate::error::IoError;
 

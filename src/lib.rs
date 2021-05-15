@@ -1,6 +1,6 @@
 //! An implementation of ERCP Basic in Rust.
 
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 #![deny(unsafe_code)]
 
 pub mod adapter;
