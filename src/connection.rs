@@ -1,6 +1,7 @@
 // TODO: Better documentation.
 //! ERCP Connection.
 
+use crate::adapter::Adapter;
 use crate::command::Command;
 use crate::error::IoError;
 use crate::EOT;
@@ -9,11 +10,6 @@ use crate::EOT;
 #[derive(Debug)]
 pub(crate) struct Connection<A: Adapter> {
     adapter: A,
-}
-
-pub trait Adapter {
-    fn read(&mut self) -> Result<Option<u8>, IoError>;
-    fn write(&mut self, byte: u8) -> Result<(), IoError>;
 }
 
 impl<A: Adapter> Connection<A> {

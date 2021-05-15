@@ -3,16 +3,17 @@
 #![cfg_attr(not(test), no_std)]
 #![deny(unsafe_code)]
 
+pub mod adapter;
 pub mod command;
 pub mod error;
-pub mod router;
 
 mod connection;
 mod crc;
 mod frame_buffer;
+mod router;
 
+pub use adapter::Adapter;
 pub use command::Command;
-pub use connection::Adapter;
 pub use error::Error;
 pub use router::{DefaultRouter, Router};
 
