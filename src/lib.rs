@@ -189,6 +189,23 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
         }
     }
 
+    pub fn reset(&mut self) -> Result<(), Error> {
+        let reply = self.command(Command::reset())?;
+
+        match reply.command() {
+            ACK => Ok(()),
+            NACK => {
+                if reply.value() == [nack_reason::UNKNOWN_COMMAND] {
+                    Err(CommandError::UnhandledCommand.into())
+                } else {
+                    Err(CommandError::UnexpectedReply.into())
+                }
+            }
+
+            _ => Err(CommandError::UnexpectedReply.into()),
+        }
+    }
+
     // TODO: Return a status.
     fn receive(&mut self, byte: u8) {
         match self.state {
@@ -1101,6 +1118,57 @@ mod tests {
 
                 assert_eq!(
                     ercp.ping(),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn reset_sends_a_reset() {
+        setup(|mut ercp| {
+            let expected_frame = Command::reset().as_frame();
+            let reply_frame = Command::ack().as_frame();
+
+            ercp.connection.adapter().test_send(&reply_frame);
+
+            assert_eq!(ercp.reset(), Ok(()));
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                expected_frame
+            );
+        })
+    }
+
+    #[test]
+    fn reset_returns_an_error_if_the_command_is_unhandled() {
+        setup(|mut ercp| {
+            let reply =
+                Command::new(NACK, &[nack_reason::UNKNOWN_COMMAND]).unwrap();
+
+            ercp.connection.adapter().test_send(&reply.as_frame());
+
+            assert_eq!(
+                ercp.reset(),
+                Err(CommandError::UnhandledCommand.into())
+            );
+        });
+    }
+
+    proptest! {
+        #[test]
+        fn reset_returns_an_error_on_unexpected_reply(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != ACK && command != NACK);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.reset(),
                     Err(CommandError::UnexpectedReply.into())
                 );
             });

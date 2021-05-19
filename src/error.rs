@@ -20,7 +20,7 @@ pub enum FrameError {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CommandError {
-    UnknownCommand,
+    UnhandledCommand,
     UnexpectedReply,
 }
 

@@ -20,6 +20,7 @@ pub trait Router {
             PING => self.handle_ping(command),
             ACK => self.handle_ack(command),
             NACK => self.handle_nack(command),
+            RESET => self.handle_reset(command),
             _ => self.default_handler(command),
         }
     }
@@ -34,6 +35,10 @@ pub trait Router {
 
     fn handle_nack(&mut self, _command: Command) -> Option<Command> {
         None
+    }
+
+    fn handle_reset(&mut self, command: Command) -> Option<Command> {
+        self.default_handler(command)
     }
 
     fn default_handler(&mut self, _command: Command) -> Option<Command> {

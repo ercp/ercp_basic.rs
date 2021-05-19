@@ -14,6 +14,7 @@ pub struct Command<'a> {
 pub const PING: u8 = 0x00;
 pub const ACK: u8 = 0x01;
 pub const NACK: u8 = 0x02;
+pub const RESET: u8 = 0x03;
 
 pub mod nack_reason {
     pub const NO_REASON: u8 = 0x00;
@@ -42,6 +43,13 @@ impl<'a> Command<'a> {
     pub fn ack() -> Self {
         Self {
             command: ACK,
+            value: &[],
+        }
+    }
+
+    pub fn reset() -> Self {
+        Self {
+            command: RESET,
             value: &[],
         }
     }
@@ -125,6 +133,17 @@ mod test {
             Command::ack(),
             Command {
                 command: ACK,
+                value: &[],
+            }
+        );
+    }
+
+    #[test]
+    fn reset_returns_a_reset() {
+        assert_eq!(
+            Command::reset(),
+            Command {
+                command: RESET,
                 value: &[],
             }
         );
