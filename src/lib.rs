@@ -19,6 +19,7 @@ pub use router::{DefaultRouter, Router};
 
 use command::{nack_reason, ACK, NACK};
 use connection::Connection;
+use error::{CommandError, FrameError};
 use frame_buffer::FrameBuffer;
 
 /// An ERCP Basic instance.
@@ -112,7 +113,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
     }
 
     /// Returns the next command to process.
-    pub fn next_command(&self) -> Option<Result<Command, Error>> {
+    pub fn next_command(&self) -> Option<Result<Command, FrameError>> {
         if self.complete_frame_received() {
             Some(self.rx_frame.check_frame())
         } else {
@@ -122,7 +123,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
 
     // TODO: Async version.
     /// Blocks until a complete frame has been received.
-    pub fn wait_for_command(&mut self) -> Result<Command, Error> {
+    pub fn wait_for_command(&mut self) -> Result<Command, FrameError> {
         while !self.complete_frame_received() {
             // TODO: Do different things depending on features.
 
@@ -146,7 +147,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
                     }
                 }
 
-                Err(Error::InvalidCRC) => {
+                Err(FrameError::InvalidCrc) => {
                     let nack = Command::new(NACK, &[nack_reason::INVALID_CRC])
                         .unwrap();
 
@@ -167,7 +168,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
         // copy the value. Maybe we should?
         // self.rx_frame.reset();
 
-        self.wait_for_command()
+        self.wait_for_command().map_err(Into::into)
     }
 
     pub fn notify(&mut self, command: Command) -> Result<(), Error> {
@@ -184,8 +185,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
         if reply.command() == ACK {
             Ok(())
         } else {
-            // TODO: Better error.
-            Err(Error::OtherError)
+            Err(CommandError::UnexpectedReply.into())
         }
     }
 
@@ -225,7 +225,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
                         }
                     }
 
-                    Err(Error::TooLong) => {
+                    Err(FrameError::TooLong) => {
                         self.reset_state();
 
                         let nack = Command::new(NACK, &[nack_reason::TOO_LONG])
@@ -801,7 +801,7 @@ mod tests {
             );
 
             ercp.rx_frame.set_crc(bad_crc);
-            assert_eq!(ercp.next_command(), Some(Err(Error::InvalidCRC)));
+            assert_eq!(ercp.next_command(), Some(Err(FrameError::InvalidCrc)));
         }
     }
 
@@ -858,7 +858,7 @@ mod tests {
             );
 
             ercp.rx_frame.set_crc(bad_crc);
-            assert_eq!(ercp.wait_for_command(), Err(Error::InvalidCRC));
+            assert_eq!(ercp.wait_for_command(), Err(FrameError::InvalidCrc));
         }
     }
 
@@ -1030,7 +1030,7 @@ mod tests {
 
             assert_eq!(
                 ercp.command(Command::ping()),
-                Err(Error::IoError(IoError::IoError))
+                Err(IoError::IoError.into())
             );
         });
     }
@@ -1064,10 +1064,7 @@ mod tests {
                 let command = Command::new(command, &value).unwrap();
                 ercp.connection.adapter().write_error = Some(IoError::IoError);
 
-                assert_eq!(
-                    ercp.notify(command),
-                    Err(Error::IoError(IoError::IoError))
-                );
+                assert_eq!(ercp.notify(command), Err(IoError::IoError.into()));
             })
         }
     }
@@ -1102,8 +1099,10 @@ mod tests {
                 let reply = Command::new(command, &value).unwrap();
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
-                // TODO: Better error.
-                assert_eq!(ercp.ping(), Err(Error::OtherError));
+                assert_eq!(
+                    ercp.ping(),
+                    Err(CommandError::UnexpectedReply.into())
+                );
             });
         }
     }

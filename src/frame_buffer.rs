@@ -2,7 +2,7 @@
 //! ERCP Basic framing tools.
 
 use crate::command::Command;
-use crate::error::Error;
+use crate::error::FrameError;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FrameBuffer<const MAX_LENGTH: usize> {
@@ -61,23 +61,23 @@ impl<const MAX_LENGTH: usize> FrameBuffer<MAX_LENGTH> {
         self.command = command;
     }
 
-    pub fn set_length(&mut self, length: u8) -> Result<(), Error> {
+    pub fn set_length(&mut self, length: u8) -> Result<(), FrameError> {
         if length as usize <= MAX_LENGTH {
             self.length = length;
             Ok(())
         } else {
-            Err(Error::TooLong)
+            Err(FrameError::TooLong)
         }
     }
 
-    pub fn push_value(&mut self, byte: u8) -> Result<(), Error> {
+    pub fn push_value(&mut self, byte: u8) -> Result<(), FrameError> {
         if self.size < self.length as usize {
             // NOTE: size < length <= MAX_LENGTH, so we are in the bounds.
             self.buffer[self.size] = byte;
             self.size += 1;
             Ok(())
         } else {
-            Err(Error::TooLong)
+            Err(FrameError::TooLong)
         }
     }
 
@@ -89,13 +89,13 @@ impl<const MAX_LENGTH: usize> FrameBuffer<MAX_LENGTH> {
         self.size == self.length.into()
     }
 
-    pub fn check_frame(&self) -> Result<Command, Error> {
+    pub fn check_frame(&self) -> Result<Command, FrameError> {
         let command = Command::new(self.command(), self.value())?;
 
         if self.crc() == command.crc() {
             Ok(command)
         } else {
-            Err(Error::InvalidCRC)
+            Err(FrameError::InvalidCrc)
         }
     }
 }
@@ -243,7 +243,10 @@ mod test {
         ) {
             let mut frame_buffer = FrameBuffer::<95>::new();
 
-            assert_eq!(frame_buffer.set_length(length), Err(Error::TooLong));
+            assert_eq!(
+                frame_buffer.set_length(length),
+                Err(FrameError::TooLong)
+            );
         }
     }
 
@@ -271,7 +274,10 @@ mod test {
             frame_buffer.set_length(1).unwrap();
 
             assert!(frame_buffer.push_value(value).is_ok());
-            assert_eq!(frame_buffer.push_value(value), Err(Error::TooLong));
+            assert_eq!(
+                frame_buffer.push_value(value),
+                Err(FrameError::TooLong)
+            );
         }
     }
 
@@ -288,7 +294,7 @@ mod test {
                 assert!(frame_buffer.push_value(byte).is_ok());
             }
 
-            assert_eq!(frame_buffer.push_value(next), Err(Error::TooLong));
+            assert_eq!(frame_buffer.push_value(next), Err(FrameError::TooLong));
         }
     }
 
@@ -361,7 +367,7 @@ mod test {
             frame_buffer.set_crc(bad_crc);
 
             let result = frame_buffer.check_frame();
-            assert_eq!(result, Err(Error::InvalidCRC));
+            assert_eq!(result, Err(FrameError::InvalidCrc));
         }
     }
 }

@@ -3,7 +3,7 @@
 //! ERCP command type and values.
 
 use crate::crc::crc;
-use crate::error::Error;
+use crate::error::FrameError;
 
 #[derive(Debug, PartialEq)]
 pub struct Command<'a> {
@@ -24,11 +24,11 @@ pub mod nack_reason {
 }
 
 impl<'a> Command<'a> {
-    pub fn new(command: u8, value: &'a [u8]) -> Result<Self, Error> {
+    pub fn new(command: u8, value: &'a [u8]) -> Result<Self, FrameError> {
         if value.len() <= u8::MAX.into() {
             Ok(Self { command, value })
         } else {
-            Err(Error::TooLong)
+            Err(FrameError::TooLong)
         }
     }
 
@@ -104,7 +104,7 @@ mod test {
             command in 0..=u8::MAX,
             value in vec(0..=u8::MAX, (u8::MAX as usize + 1)..1000)
         ) {
-            assert_eq!(Command::new(command, &value), Err(Error::TooLong))
+            assert_eq!(Command::new(command, &value), Err(FrameError::TooLong))
         }
     }
 
