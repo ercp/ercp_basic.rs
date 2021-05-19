@@ -90,6 +90,10 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
         }
     }
 
+    pub fn release(self) -> (A, R) {
+        (self.connection.release(), self.router)
+    }
+
     pub fn handle_data(&mut self) {
         loop {
             match self.connection.read() {

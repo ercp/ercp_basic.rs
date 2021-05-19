@@ -33,4 +33,9 @@ impl SerialPortAdapter {
     pub fn new(port: Box<dyn SerialPort>) -> Self {
         Self { port }
     }
+
+    /// Releases the serial port.
+    pub fn release(self) -> Box<dyn SerialPort> {
+        self.port
+    }
 }

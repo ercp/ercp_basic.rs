@@ -17,6 +17,10 @@ impl<A: Adapter> Connection<A> {
         Self { adapter }
     }
 
+    pub fn release(self) -> A {
+        self.adapter
+    }
+
     pub fn read(&mut self) -> Result<Option<u8>, IoError> {
         self.adapter.read()
     }

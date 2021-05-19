@@ -26,4 +26,8 @@ impl<S: Read<u8> + Write<u8>> SerialAdapter<S> {
     pub fn new(serial: S) -> Self {
         Self { serial }
     }
+
+    pub fn release(self) -> S {
+        self.serial
+    }
 }
