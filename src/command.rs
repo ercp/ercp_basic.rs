@@ -15,6 +15,10 @@ pub const PING: u8 = 0x00;
 pub const ACK: u8 = 0x01;
 pub const NACK: u8 = 0x02;
 pub const RESET: u8 = 0x03;
+pub const PROTOCOL: u8 = 0x04;
+pub const PROTOCOL_REPLY: u8 = 0x05;
+pub const VERSION: u8 = 0x06;
+pub const VERSION_REPLY: u8 = 0x07;
 
 pub mod nack_reason {
     pub const NO_REASON: u8 = 0x00;
@@ -22,6 +26,11 @@ pub mod nack_reason {
     pub const INVALID_CRC: u8 = 0x02;
     pub const UNKNOWN_COMMAND: u8 = 0x03;
     pub const INVALID_ARGUMENTS: u8 = 0x04;
+}
+
+pub mod component {
+    pub const FIRMWARE: u8 = 0x00;
+    pub const ERCP_LIBRARY: u8 = 0x01;
 }
 
 impl<'a> Command<'a> {
@@ -50,6 +59,13 @@ impl<'a> Command<'a> {
     pub fn reset() -> Self {
         Self {
             command: RESET,
+            value: &[],
+        }
+    }
+
+    pub fn protocol() -> Self {
+        Self {
+            command: PROTOCOL,
             value: &[],
         }
     }
@@ -109,6 +125,43 @@ macro_rules! nack {
 macro_rules! reset {
     () => {
         $crate::command::Command::reset()
+    };
+}
+
+#[macro_export]
+macro_rules! protocol {
+    () => {
+        $crate::command::Command::protocol()
+    };
+}
+
+#[macro_export]
+macro_rules! protocol_reply {
+    ($version:expr) => {
+        $crate::command::Command::new(
+            $crate::command::PROTOCOL_REPLY,
+            &[$version.major, $version.minor, $version.patch],
+        )
+        .unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! version {
+    ($component:expr) => {
+        $crate::command::Command::new($crate::command::VERSION, &[$component])
+            .unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! version_reply {
+    ($version:expr) => {
+        $crate::command::Command::new(
+            $crate::command::VERSION_REPLY,
+            $version.as_bytes(),
+        )
+        .unwrap()
     };
 }
 
@@ -173,6 +226,17 @@ mod test {
             Command::reset(),
             Command {
                 command: RESET,
+                value: &[],
+            }
+        );
+    }
+
+    #[test]
+    fn protocol_returns_a_protocol() {
+        assert_eq!(
+            Command::protocol(),
+            Command {
+                command: PROTOCOL,
                 value: &[],
             }
         );

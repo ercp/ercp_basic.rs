@@ -2,7 +2,7 @@
 //! ERCP Router and default implementation.
 
 use crate::command::*;
-use crate::{ack, nack};
+use crate::{ack, nack, protocol_reply, version, version_reply};
 
 /// An ERCP router.
 pub trait Router {
@@ -22,6 +22,8 @@ pub trait Router {
             ACK => self.handle_ack(command),
             NACK => self.handle_nack(command),
             RESET => self.handle_reset(command),
+            PROTOCOL => self.handle_protocol(command),
+            VERSION => self.handle_version(command),
             _ => self.default_handler(command),
         }
     }
@@ -42,8 +44,37 @@ pub trait Router {
         self.default_handler(command)
     }
 
+    fn handle_protocol(&mut self, _command: Command) -> Option<Command> {
+        Some(protocol_reply!(version::PROTOCOL_VERSION))
+    }
+
+    fn handle_version(&mut self, command: Command) -> Option<Command> {
+        if command.length() == 1 {
+            let version = self.version(command.value()[0]);
+            Some(version_reply!(version))
+        } else {
+            Some(nack!(nack_reason::INVALID_ARGUMENTS))
+        }
+    }
+
     fn default_handler(&mut self, _command: Command) -> Option<Command> {
         Some(nack!(nack_reason::UNKNOWN_COMMAND))
+    }
+
+    fn version(&self, component: u8) -> &str {
+        self.default_versions(component)
+    }
+
+    fn default_versions(&self, component: u8) -> &str {
+        match component {
+            component::FIRMWARE => self.firmware_version(),
+            component::ERCP_LIBRARY => version::LIBRARY_VERSION,
+            _ => "unknown_component",
+        }
+    }
+
+    fn firmware_version(&self) -> &str {
+        "Generic ERCP firmware"
     }
 }
 
@@ -58,26 +89,24 @@ impl Router for DefaultRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ping, protocol};
 
     use proptest::collection::vec;
     use proptest::prelude::*;
 
     #[test]
-    fn a_ping_replies_an_ack() {
-        assert_eq!(
-            DefaultRouter.route(Command::ping(), &mut ()),
-            Some(Command::ack())
-        );
+    fn to_ping_replies_an_ack() {
+        assert_eq!(DefaultRouter.route(ping!(), &mut ()), Some(ack!()));
     }
 
     #[test]
-    fn an_ack_replies_nothing() {
-        assert_eq!(DefaultRouter.route(Command::ack(), &mut ()), None);
+    fn to_ack_replies_nothing() {
+        assert_eq!(DefaultRouter.route(ack!(), &mut ()), None);
     }
 
     proptest! {
         #[test]
-        fn a_nack_replies_nothing(
+        fn to_nack_replies_nothing(
             reason in vec(0..=u8::MAX, 0..=u8::MAX as usize)
         ) {
             let nack = Command::new(NACK, &reason).unwrap();
@@ -85,9 +114,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn to_protocol_replies_the_protocol_version() {
+        assert_eq!(
+            DefaultRouter.route(protocol!(), &mut ()),
+            Some(protocol_reply!(version::PROTOCOL_VERSION))
+        );
+    }
+
+    #[test]
+    fn to_firmware_version_replies_a_generic_version_by_default() {
+        assert_eq!(
+            DefaultRouter.route(version!(component::FIRMWARE), &mut ()),
+            Some(version_reply!("Generic ERCP firmware"))
+        );
+    }
+
+    #[test]
+    fn to_ercp_lib_version_replies_the_current_ercp_basic_rs_version() {
+        assert_eq!(
+            DefaultRouter.route(version!(component::ERCP_LIBRARY), &mut ()),
+            Some(version_reply!(version::LIBRARY_VERSION))
+        );
+    }
+
     proptest! {
         #[test]
-        fn any_other_command_replies_a_nack_unknown_command(
+        fn to_other_components_version_replies_unknown_component(
+            component in 0..=u8::MAX,
+        ) {
+            prop_assume!(
+                component != component::FIRMWARE
+                && component != component::ERCP_LIBRARY
+            );
+
+            assert_eq!(
+                DefaultRouter.route(version!(component), &mut ()),
+                Some(version_reply!("unknown_component"))
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn to_any_other_command_replies_a_nack_unknown_command(
             command in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
@@ -95,6 +165,8 @@ mod tests {
                 command != PING
                 && command != ACK
                 && command != NACK
+                && command != PROTOCOL
+                && command != VERSION
             );
 
             let command = Command::new(command, &value).unwrap();

@@ -6,6 +6,7 @@
 pub mod adapter;
 pub mod command;
 pub mod error;
+pub mod version;
 
 mod connection;
 mod crc;
@@ -16,10 +17,11 @@ pub use adapter::Adapter;
 pub use command::Command;
 pub use error::Error;
 pub use router::{DefaultRouter, Router};
+pub use version::Version;
 
-use command::{nack_reason, ACK, NACK};
+use command::{nack_reason, ACK, NACK, PROTOCOL_REPLY, VERSION, VERSION_REPLY};
 use connection::Connection;
-use error::{CommandError, FrameError};
+use error::{BufferError, CommandError, FrameError};
 use frame_buffer::FrameBuffer;
 
 /// An ERCP Basic instance.
@@ -200,6 +202,41 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
             }
 
             _ => Err(CommandError::UnexpectedReply.into()),
+        }
+    }
+
+    pub fn protocol(&mut self) -> Result<Version, Error> {
+        let reply = self.command(protocol!())?;
+
+        if reply.command() == PROTOCOL_REPLY && reply.length() == 3 {
+            let version = Version {
+                major: reply.value()[0],
+                minor: reply.value()[1],
+                patch: reply.value()[2],
+            };
+
+            Ok(version)
+        } else {
+            Err(CommandError::UnexpectedReply.into())
+        }
+    }
+
+    pub fn version(
+        &mut self,
+        component: u8,
+        version: &mut [u8],
+    ) -> Result<usize, Error> {
+        let reply = self.command(version!(component))?;
+
+        if reply.command() == VERSION_REPLY {
+            if reply.value().len() <= version.len() {
+                version[0..reply.value().len()].copy_from_slice(reply.value());
+                Ok(reply.value().len())
+            } else {
+                Err(BufferError::TooShort.into())
+            }
+        } else {
+            Err(CommandError::UnexpectedReply.into())
         }
     }
 
@@ -1152,6 +1189,157 @@ mod tests {
 
                 assert_eq!(
                     ercp.reset(),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn protocol_sends_a_protocol_command() {
+        setup(|mut ercp| {
+            let expected_frame = protocol!().as_frame();
+            let reply_frame =
+                protocol_reply!(version::PROTOCOL_VERSION).as_frame();
+
+            ercp.connection.adapter().test_send(&reply_frame);
+
+            assert!(ercp.protocol().is_ok());
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                expected_frame
+            );
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn protocol_returns_the_received_protocol_version(
+            major in 0..=u8::MAX,
+            minor in 0..=u8::MAX,
+            patch in 0..=u8::MAX,
+        ) {
+            setup(|mut ercp| {
+                let version = Version { major, minor, patch };
+                let reply_frame = protocol_reply!(version).as_frame();
+
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert_eq!(
+                    ercp.protocol(),
+                    Ok(Version { major, minor, patch })
+                );
+            })
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn protocol_returns_an_error_on_unexpected_reply(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != PROTOCOL_REPLY || value.len() != 3);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.protocol(),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_sends_a_version_command(component in 0..=u8::MAX) {
+            setup(|mut ercp| {
+                let expected_frame = version!(component).as_frame();
+                let reply_frame = version_reply!("").as_frame();
+
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert!(ercp.version(component, &mut []).is_ok());
+                assert_eq!(
+                    ercp.connection.adapter().test_receive(),
+                    expected_frame
+                );
+            })
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_copies_the_reply_to_the_provided_buffer(
+            component in 0..=u8::MAX,
+            version in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = version_reply!(version).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                let mut buffer = [0; 255];
+
+                assert!(ercp.version(component, &mut buffer).is_ok());
+                assert_eq!(&buffer[0..version.as_bytes().len()], version.as_bytes());
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_returns_the_length_of_the_reply(
+            component in 0..=u8::MAX,
+            version in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = version_reply!(version).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert_eq!(
+                    ercp.version(component, &mut [0; 255]),
+                    Ok(version.as_bytes().len())
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_returns_an_error_if_the_buffer_is_too_short_for_reply(
+            component in 0..=u8::MAX,
+            version in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = version_reply!(version).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert_eq!(
+                    ercp.version(component, &mut []),
+                    Err(BufferError::TooShort.into())
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_returns_an_error_on_unexpected_reply(
+            component in 0..=u8::MAX,
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != VERSION_REPLY);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.version(component, &mut []),
                     Err(CommandError::UnexpectedReply.into())
                 );
             });
