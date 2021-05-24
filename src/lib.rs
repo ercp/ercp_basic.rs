@@ -1290,7 +1290,7 @@ mod tests {
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = version_reply!(version).as_frame();
+                let reply_frame = version_reply!(&version).as_frame();
                 ercp.connection.adapter().test_send(&reply_frame);
 
                 let mut buffer = [0; 255];
@@ -1308,7 +1308,7 @@ mod tests {
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = version_reply!(version).as_frame();
+                let reply_frame = version_reply!(&version).as_frame();
                 ercp.connection.adapter().test_send(&reply_frame);
 
                 assert_eq!(
@@ -1326,7 +1326,7 @@ mod tests {
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = version_reply!(version).as_frame();
+                let reply_frame = version_reply!(&version).as_frame();
                 ercp.connection.adapter().test_send(&reply_frame);
 
                 assert_eq!(

@@ -72,6 +72,10 @@ impl<'a> Command<'a> {
         }
     }
 
+    pub fn version_reply(version: &'a str) -> Result<Self, FrameError> {
+        Self::new(VERSION_REPLY, version.as_bytes())
+    }
+
     pub fn max_length() -> Self {
         Self {
             command: MAX_LENGTH,
@@ -166,11 +170,7 @@ macro_rules! version {
 #[macro_export]
 macro_rules! version_reply {
     ($version:expr) => {
-        $crate::command::Command::new(
-            $crate::command::VERSION_REPLY,
-            $version.as_bytes(),
-        )
-        .unwrap()
+        $crate::command::Command::version_reply($version).unwrap()
     };
 }
 
@@ -267,6 +267,21 @@ mod test {
                 value: &[],
             }
         );
+    }
+
+    proptest! {
+        #[test]
+        fn version_reply_returns_a_version_reply(
+            version in ".{0,100}",
+        ) {
+            assert_eq!(
+                Command::version_reply(&version),
+                Ok(Command {
+                    command: VERSION_REPLY,
+                    value: version.as_bytes(),
+                })
+            );
+        }
     }
 
     #[test]
