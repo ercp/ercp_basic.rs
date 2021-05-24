@@ -3,7 +3,8 @@
 
 use crate::command::*;
 use crate::{
-    ack, max_length_reply, nack, protocol_reply, version, version_reply,
+    ack, description_reply, max_length_reply, nack, protocol_reply, version,
+    version_reply,
 };
 
 /// An ERCP router.
@@ -27,6 +28,7 @@ pub trait Router<const MAX_LEN: usize> {
             PROTOCOL => self.handle_protocol(command),
             VERSION => self.handle_version(command),
             MAX_LENGTH => self.handle_max_length(command),
+            DESCRIPTION => self.handle_description(command),
             _ => self.default_handler(command),
         }
     }
@@ -64,6 +66,10 @@ pub trait Router<const MAX_LEN: usize> {
         Some(max_length_reply!(MAX_LEN as u8))
     }
 
+    fn handle_description(&mut self, _command: Command) -> Option<Command> {
+        Some(description_reply!(self.description()))
+    }
+
     fn default_handler(&mut self, _command: Command) -> Option<Command> {
         Some(nack!(nack_reason::UNKNOWN_COMMAND))
     }
@@ -83,6 +89,10 @@ pub trait Router<const MAX_LEN: usize> {
     fn firmware_version(&self) -> &str {
         "Generic ERCP firmware"
     }
+
+    fn description(&self) -> &str {
+        "Generic ERCP device"
+    }
 }
 
 /// A concrete ERCP router using the default implementations.
@@ -96,7 +106,7 @@ impl<const MAX_LEN: usize> Router<MAX_LEN> for DefaultRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{max_length, ping, protocol};
+    use crate::{description, max_length, ping, protocol};
 
     use proptest::collection::vec;
     use proptest::prelude::*;
@@ -213,6 +223,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn to_description_replies_a_generic_description_by_default() {
+        let mut router: Box<dyn Router<255, Context = _>> =
+            Box::new(DefaultRouter);
+
+        assert_eq!(
+            router.route(description!(), &mut ()),
+            Some(description_reply!("Generic ERCP device"))
+        );
+    }
+
     proptest! {
         #[test]
         fn to_any_other_command_replies_a_nack_unknown_command(
@@ -226,6 +247,7 @@ mod tests {
                 && command != PROTOCOL
                 && command != VERSION
                 && command != MAX_LENGTH
+                && command != DESCRIPTION
             );
 
             let mut router: Box<dyn Router<255, Context = _>> =

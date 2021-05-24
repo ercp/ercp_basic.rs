@@ -20,7 +20,8 @@ pub use router::{DefaultRouter, Router};
 pub use version::Version;
 
 use command::{
-    nack_reason, ACK, MAX_LENGTH_REPLY, NACK, PROTOCOL_REPLY, VERSION_REPLY,
+    nack_reason, ACK, DESCRIPTION_REPLY, MAX_LENGTH_REPLY, NACK,
+    PROTOCOL_REPLY, VERSION_REPLY,
 };
 use connection::Connection;
 use error::{BufferError, CommandError, FrameError};
@@ -247,6 +248,26 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
 
         if reply.command() == MAX_LENGTH_REPLY && reply.length() == 1 {
             Ok(reply.value()[0])
+        } else {
+            Err(CommandError::UnexpectedReply.into())
+        }
+    }
+
+    pub fn description(
+        &mut self,
+        description: &mut [u8],
+    ) -> Result<usize, Error> {
+        let reply = self.command(description!())?;
+
+        if reply.command() == DESCRIPTION_REPLY {
+            if reply.value().len() <= description.len() {
+                description[0..reply.value().len()]
+                    .copy_from_slice(reply.value());
+
+                Ok(reply.value().len())
+            } else {
+                Err(BufferError::TooShort.into())
+            }
         } else {
             Err(CommandError::UnexpectedReply.into())
         }
@@ -1296,7 +1317,10 @@ mod tests {
                 let mut buffer = [0; 255];
 
                 assert!(ercp.version(component, &mut buffer).is_ok());
-                assert_eq!(&buffer[0..version.as_bytes().len()], version.as_bytes());
+                assert_eq!(
+                    &buffer[0..version.as_bytes().len()],
+                    version.as_bytes()
+                );
             });
         }
     }
@@ -1405,6 +1429,96 @@ mod tests {
 
                 assert_eq!(
                     ercp.max_length(),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn description_sends_a_description_command() {
+        setup(|mut ercp| {
+            let expected_frame = description!().as_frame();
+            let reply_frame = description_reply!("").as_frame();
+
+            ercp.connection.adapter().test_send(&reply_frame);
+
+            assert!(ercp.description(&mut []).is_ok());
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                expected_frame
+            );
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn description_copies_the_reply_to_the_provided_buffer(
+            description in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = description_reply!(&description).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                let mut buffer = [0; 255];
+
+                assert!(ercp.description(&mut buffer).is_ok());
+                assert_eq!(
+                    &buffer[0..description.as_bytes().len()],
+                    description.as_bytes()
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn description_returns_the_length_of_the_reply(
+            description in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = description_reply!(&description).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert_eq!(
+                    ercp.description(&mut [0; 255]),
+                    Ok(description.as_bytes().len())
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn description_returns_an_error_if_the_buffer_is_too_short_for_reply(
+            description in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = description_reply!(&description).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert_eq!(
+                    ercp.description(&mut []),
+                    Err(BufferError::TooShort.into())
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn description_returns_an_error_on_unexpected_reply(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != DESCRIPTION_REPLY);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.description(&mut []),
                     Err(CommandError::UnexpectedReply.into())
                 );
             });
