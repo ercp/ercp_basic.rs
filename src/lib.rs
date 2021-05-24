@@ -148,10 +148,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
                 }
 
                 Err(FrameError::InvalidCrc) => {
-                    let nack = Command::new(NACK, &[nack_reason::INVALID_CRC])
-                        .unwrap();
-
-                    self.notify(nack);
+                    self.notify(nack!(nack_reason::INVALID_CRC));
                 }
 
                 Err(_) => unreachable!(),
@@ -177,7 +174,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
     }
 
     pub fn ping(&mut self) -> Result<(), Error> {
-        let reply = self.command(Command::ping())?;
+        let reply = self.command(ping!())?;
 
         // TODO: Reset the frame buffer. Is it here, wouldn’t it be better to
         // copy the command instead?
@@ -190,7 +187,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
     }
 
     pub fn reset(&mut self) -> Result<(), Error> {
-        let reply = self.command(Command::reset())?;
+        let reply = self.command(reset!())?;
 
         match reply.command() {
             ACK => Ok(()),
@@ -244,11 +241,7 @@ impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
 
                     Err(FrameError::TooLong) => {
                         self.reset_state();
-
-                        let nack = Command::new(NACK, &[nack_reason::TOO_LONG])
-                            .unwrap();
-
-                        self.notify(nack);
+                        self.notify(nack!(nack_reason::TOO_LONG));
                     }
 
                     Err(_) => unreachable!(),
@@ -620,12 +613,10 @@ mod tests {
 
             ercp.state = State::Receiving(Field::Length);
 
-            let nack = Command::new(NACK, &[nack_reason::TOO_LONG]).unwrap();
-
             ercp.receive(length);
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
-                nack.as_frame()
+                nack!(nack_reason::TOO_LONG).as_frame()
             );
         }
     }
@@ -971,12 +962,10 @@ mod tests {
             prop_assume!(bad_crc != ercp.rx_frame.crc());
             ercp.rx_frame.set_crc(bad_crc);
 
-            let nack = Command::new(NACK, &[nack_reason::INVALID_CRC]).unwrap();
-
             ercp.process(&mut ());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
-                nack.as_frame()
+                nack!(nack_reason::INVALID_CRC).as_frame()
             );
         }
     }
@@ -1014,7 +1003,7 @@ mod tests {
                 let expected_frame = command.as_frame();
 
                 // Ensure there is a reply not to block.
-                ercp.connection.adapter().test_send(&Command::ack().as_frame());
+                ercp.connection.adapter().test_send(&ack!().as_frame());
 
                 assert!(ercp.command(command).is_ok());
                 assert_eq!(
@@ -1035,7 +1024,7 @@ mod tests {
                 let reply = Command::new(command, &value).unwrap();
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
-                assert_eq!(ercp.command(Command::ping()), Ok(reply));
+                assert_eq!(ercp.command(ping!()), Ok(reply));
             });
         }
     }
@@ -1044,11 +1033,7 @@ mod tests {
     fn command_returns_an_error_on_write_errors() {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(IoError::IoError);
-
-            assert_eq!(
-                ercp.command(Command::ping()),
-                Err(IoError::IoError.into())
-            );
+            assert_eq!(ercp.command(ping!()), Err(IoError::IoError.into()));
         });
     }
 
@@ -1091,8 +1076,8 @@ mod tests {
     #[test]
     fn ping_sends_a_ping() {
         setup(|mut ercp| {
-            let expected_frame = Command::ping().as_frame();
-            let reply_frame = Command::ack().as_frame();
+            let expected_frame = ping!().as_frame();
+            let reply_frame = ack!().as_frame();
 
             ercp.connection.adapter().test_send(&reply_frame);
 
@@ -1127,8 +1112,8 @@ mod tests {
     #[test]
     fn reset_sends_a_reset() {
         setup(|mut ercp| {
-            let expected_frame = Command::reset().as_frame();
-            let reply_frame = Command::ack().as_frame();
+            let expected_frame = reset!().as_frame();
+            let reply_frame = ack!().as_frame();
 
             ercp.connection.adapter().test_send(&reply_frame);
 
@@ -1143,9 +1128,7 @@ mod tests {
     #[test]
     fn reset_returns_an_error_if_the_command_is_unhandled() {
         setup(|mut ercp| {
-            let reply =
-                Command::new(NACK, &[nack_reason::UNKNOWN_COMMAND]).unwrap();
-
+            let reply = nack!(nack_reason::UNKNOWN_COMMAND);
             ercp.connection.adapter().test_send(&reply.as_frame());
 
             assert_eq!(

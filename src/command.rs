@@ -83,6 +83,35 @@ impl<'a> Command<'a> {
     }
 }
 
+#[macro_export]
+macro_rules! ping {
+    () => {
+        $crate::command::Command::ping()
+    };
+}
+
+#[macro_export]
+macro_rules! ack {
+    () => {
+        $crate::command::Command::ack()
+    };
+}
+
+#[macro_export]
+macro_rules! nack {
+    ($reason:expr) => {
+        $crate::command::Command::new($crate::command::NACK, &[$reason])
+            .unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! reset {
+    () => {
+        $crate::command::Command::reset()
+    };
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

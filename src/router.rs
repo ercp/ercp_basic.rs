@@ -2,6 +2,7 @@
 //! ERCP Router and default implementation.
 
 use crate::command::*;
+use crate::{ack, nack};
 
 /// An ERCP router.
 pub trait Router {
@@ -26,7 +27,7 @@ pub trait Router {
     }
 
     fn handle_ping(&mut self, _command: Command) -> Option<Command> {
-        Some(Command::ack())
+        Some(ack!())
     }
 
     fn handle_ack(&mut self, _command: Command) -> Option<Command> {
@@ -42,7 +43,7 @@ pub trait Router {
     }
 
     fn default_handler(&mut self, _command: Command) -> Option<Command> {
-        Command::new(NACK, &[nack_reason::UNKNOWN_COMMAND]).ok()
+        Some(nack!(nack_reason::UNKNOWN_COMMAND))
     }
 }
 
