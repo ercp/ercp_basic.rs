@@ -5,7 +5,7 @@ use crate::command::*;
 use crate::{ack, nack, protocol_reply, version, version_reply};
 
 /// An ERCP router.
-pub trait Router {
+pub trait Router<const MAX_LEN: usize> {
     type Context;
 
     fn route(
@@ -82,7 +82,7 @@ pub trait Router {
 #[derive(Debug)]
 pub struct DefaultRouter;
 
-impl Router for DefaultRouter {
+impl<const MAX_LEN: usize> Router<MAX_LEN> for DefaultRouter {
     type Context = ();
 }
 
@@ -96,12 +96,18 @@ mod tests {
 
     #[test]
     fn to_ping_replies_an_ack() {
-        assert_eq!(DefaultRouter.route(ping!(), &mut ()), Some(ack!()));
+        let mut router: Box<dyn Router<255, Context = _>> =
+            Box::new(DefaultRouter);
+
+        assert_eq!(router.route(ping!(), &mut ()), Some(ack!()));
     }
 
     #[test]
     fn to_ack_replies_nothing() {
-        assert_eq!(DefaultRouter.route(ack!(), &mut ()), None);
+        let mut router: Box<dyn Router<255, Context = _>> =
+            Box::new(DefaultRouter);
+
+        assert_eq!(router.route(ack!(), &mut ()), None);
     }
 
     proptest! {
@@ -109,31 +115,43 @@ mod tests {
         fn to_nack_replies_nothing(
             reason in vec(0..=u8::MAX, 0..=u8::MAX as usize)
         ) {
+            let mut router: Box<dyn Router<255, Context = _>> =
+                Box::new(DefaultRouter);
+
             let nack = Command::new(NACK, &reason).unwrap();
-            assert_eq!(DefaultRouter.route(nack, &mut ()), None);
+            assert_eq!(router.route(nack, &mut ()), None);
         }
     }
 
     #[test]
     fn to_protocol_replies_the_protocol_version() {
+        let mut router: Box<dyn Router<255, Context = _>> =
+            Box::new(DefaultRouter);
+
         assert_eq!(
-            DefaultRouter.route(protocol!(), &mut ()),
+            router.route(protocol!(), &mut ()),
             Some(protocol_reply!(version::PROTOCOL_VERSION))
         );
     }
 
     #[test]
     fn to_firmware_version_replies_a_generic_version_by_default() {
+        let mut router: Box<dyn Router<255, Context = _>> =
+            Box::new(DefaultRouter);
+
         assert_eq!(
-            DefaultRouter.route(version!(component::FIRMWARE), &mut ()),
+            router.route(version!(component::FIRMWARE), &mut ()),
             Some(version_reply!("Generic ERCP firmware"))
         );
     }
 
     #[test]
     fn to_ercp_lib_version_replies_the_current_ercp_basic_rs_version() {
+        let mut router: Box<dyn Router<255, Context = _>> =
+            Box::new(DefaultRouter);
+
         assert_eq!(
-            DefaultRouter.route(version!(component::ERCP_LIBRARY), &mut ()),
+            router.route(version!(component::ERCP_LIBRARY), &mut ()),
             Some(version_reply!(version::LIBRARY_VERSION))
         );
     }
@@ -148,8 +166,11 @@ mod tests {
                 && component != component::ERCP_LIBRARY
             );
 
+            let mut router: Box<dyn Router<255, Context = _>> =
+                Box::new(DefaultRouter);
+
             assert_eq!(
-                DefaultRouter.route(version!(component), &mut ()),
+                router.route(version!(component), &mut ()),
                 Some(version_reply!("unknown_component"))
             );
         }
@@ -169,11 +190,14 @@ mod tests {
                 && command != VERSION
             );
 
+            let mut router: Box<dyn Router<255, Context = _>> =
+                Box::new(DefaultRouter);
+
             let command = Command::new(command, &value).unwrap();
             let nack =
                 Command::new(NACK, &[nack_reason::UNKNOWN_COMMAND]).unwrap();
 
-            assert_eq!(DefaultRouter.route(command, &mut ()), Some(nack));
+            assert_eq!(router.route(command, &mut ()), Some(nack));
         }
     }
 }

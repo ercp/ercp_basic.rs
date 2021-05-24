@@ -26,7 +26,7 @@ use frame_buffer::FrameBuffer;
 
 /// An ERCP Basic instance.
 #[derive(Debug)]
-pub struct ErcpBasic<A: Adapter, R: Router, const MAX_LEN: usize> {
+pub struct ErcpBasic<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize> {
     state: State,
     rx_frame: FrameBuffer<MAX_LEN>,
     connection: Connection<A>,
@@ -81,7 +81,9 @@ impl InitState {
     }
 }
 
-impl<A: Adapter, R: Router, const MAX_LEN: usize> ErcpBasic<A, R, MAX_LEN> {
+impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
+    ErcpBasic<A, R, MAX_LEN>
+{
     pub fn new(adapter: A, router: R) -> Self {
         Self {
             state: State::Ready,
@@ -342,7 +344,7 @@ mod tests {
         value: Vec<u8>,
     }
 
-    impl Router for TestRouter {
+    impl<const MAX_LEN: usize> Router<MAX_LEN> for TestRouter {
         type Context = ();
 
         fn route(&mut self, command: Command, _: &mut ()) -> Option<Command> {
