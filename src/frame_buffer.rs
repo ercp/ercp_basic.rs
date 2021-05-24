@@ -5,30 +5,30 @@ use crate::command::Command;
 use crate::error::FrameError;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct FrameBuffer<const MAX_LENGTH: usize> {
+pub(crate) struct FrameBuffer<const MAX_LEN: usize> {
     // state: Field,
     command: u8,
     length: u8,
-    buffer: [u8; MAX_LENGTH],
+    buffer: [u8; MAX_LEN],
     size: usize,
     crc: u8,
 }
 
 // IDEA: Derive default when it is implemented for arbritrary-sized arrays.
-impl<const MAX_LENGTH: usize> Default for FrameBuffer<MAX_LENGTH> {
+impl<const MAX_LEN: usize> Default for FrameBuffer<MAX_LEN> {
     fn default() -> Self {
         Self {
             // state: Field::Command,
             command: 0x00,
             length: 0x00,
-            buffer: [0; MAX_LENGTH],
+            buffer: [0; MAX_LEN],
             size: 0,
             crc: 0x00,
         }
     }
 }
 
-impl<const MAX_LENGTH: usize> FrameBuffer<MAX_LENGTH> {
+impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -62,7 +62,7 @@ impl<const MAX_LENGTH: usize> FrameBuffer<MAX_LENGTH> {
     }
 
     pub fn set_length(&mut self, length: u8) -> Result<(), FrameError> {
-        if length as usize <= MAX_LENGTH {
+        if length as usize <= MAX_LEN {
             self.length = length;
             Ok(())
         } else {
@@ -72,7 +72,7 @@ impl<const MAX_LENGTH: usize> FrameBuffer<MAX_LENGTH> {
 
     pub fn push_value(&mut self, byte: u8) -> Result<(), FrameError> {
         if self.size < self.length as usize {
-            // NOTE: size < length <= MAX_LENGTH, so we are in the bounds.
+            // NOTE: size < length <= MAX_LEN, so we are in the bounds.
             self.buffer[self.size] = byte;
             self.size += 1;
             Ok(())

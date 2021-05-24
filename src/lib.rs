@@ -26,9 +26,9 @@ use frame_buffer::FrameBuffer;
 
 /// An ERCP Basic instance.
 #[derive(Debug)]
-pub struct ErcpBasic<A: Adapter, R: Router, const MAX_LENGTH: usize> {
+pub struct ErcpBasic<A: Adapter, R: Router, const MAX_LEN: usize> {
     state: State,
-    rx_frame: FrameBuffer<MAX_LENGTH>,
+    rx_frame: FrameBuffer<MAX_LEN>,
     connection: Connection<A>,
     router: R,
 }
@@ -81,9 +81,7 @@ impl InitState {
     }
 }
 
-impl<A: Adapter, R: Router, const MAX_LENGTH: usize>
-    ErcpBasic<A, R, MAX_LENGTH>
-{
+impl<A: Adapter, R: Router, const MAX_LEN: usize> ErcpBasic<A, R, MAX_LEN> {
     pub fn new(adapter: A, router: R) -> Self {
         Self {
             state: State::Ready,
@@ -370,11 +368,11 @@ mod tests {
         }
     }
 
-    const MAX_LENGTH: usize = u8::MAX as usize;
+    const MAX_LEN: usize = u8::MAX as usize;
 
     ////////////////////////////// Test setup //////////////////////////////
 
-    fn setup(test: impl Fn(ErcpBasic<TestAdapter, TestRouter, MAX_LENGTH>)) {
+    fn setup(test: impl Fn(ErcpBasic<TestAdapter, TestRouter, MAX_LEN>)) {
         let adapter = TestAdapter::default();
         let router = TestRouter::default();
         let ercp = ErcpBasic::new(adapter, router);
@@ -383,9 +381,9 @@ mod tests {
 
     /////////////////////////////// Strategy ///////////////////////////////
 
-    fn ercp<'a>(
+    fn ercp(
         state: State,
-    ) -> impl Strategy<Value = ErcpBasic<TestAdapter, TestRouter, MAX_LENGTH>>
+    ) -> impl Strategy<Value = ErcpBasic<TestAdapter, TestRouter, MAX_LEN>>
     {
         (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
             move |(command, value)| {
