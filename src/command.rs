@@ -19,6 +19,8 @@ pub const PROTOCOL: u8 = 0x04;
 pub const PROTOCOL_REPLY: u8 = 0x05;
 pub const VERSION: u8 = 0x06;
 pub const VERSION_REPLY: u8 = 0x07;
+pub const MAX_LENGTH: u8 = 0x08;
+pub const MAX_LENGTH_REPLY: u8 = 0x09;
 
 pub mod nack_reason {
     pub const NO_REASON: u8 = 0x00;
@@ -66,6 +68,13 @@ impl<'a> Command<'a> {
     pub fn protocol() -> Self {
         Self {
             command: PROTOCOL,
+            value: &[],
+        }
+    }
+
+    pub fn max_length() -> Self {
+        Self {
+            command: MAX_LENGTH,
             value: &[],
         }
     }
@@ -165,6 +174,24 @@ macro_rules! version_reply {
     };
 }
 
+#[macro_export]
+macro_rules! max_length {
+    () => {
+        $crate::command::Command::max_length()
+    };
+}
+
+#[macro_export]
+macro_rules! max_length_reply {
+    ($max_length:expr) => {
+        $crate::command::Command::new(
+            $crate::command::MAX_LENGTH_REPLY,
+            &[$max_length],
+        )
+        .unwrap()
+    };
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -237,6 +264,17 @@ mod test {
             Command::protocol(),
             Command {
                 command: PROTOCOL,
+                value: &[],
+            }
+        );
+    }
+
+    #[test]
+    fn max_length_returns_a_max_length() {
+        assert_eq!(
+            Command::max_length(),
+            Command {
+                command: MAX_LENGTH,
                 value: &[],
             }
         );

@@ -2,7 +2,9 @@
 //! ERCP Router and default implementation.
 
 use crate::command::*;
-use crate::{ack, nack, protocol_reply, version, version_reply};
+use crate::{
+    ack, max_length_reply, nack, protocol_reply, version, version_reply,
+};
 
 /// An ERCP router.
 pub trait Router<const MAX_LEN: usize> {
@@ -24,6 +26,7 @@ pub trait Router<const MAX_LEN: usize> {
             RESET => self.handle_reset(command),
             PROTOCOL => self.handle_protocol(command),
             VERSION => self.handle_version(command),
+            MAX_LENGTH => self.handle_max_length(command),
             _ => self.default_handler(command),
         }
     }
@@ -55,6 +58,10 @@ pub trait Router<const MAX_LEN: usize> {
         } else {
             Some(nack!(nack_reason::INVALID_ARGUMENTS))
         }
+    }
+
+    fn handle_max_length(&mut self, _command: Command) -> Option<Command> {
+        Some(max_length_reply!(MAX_LEN as u8))
     }
 
     fn default_handler(&mut self, _command: Command) -> Option<Command> {
@@ -89,7 +96,7 @@ impl<const MAX_LEN: usize> Router<MAX_LEN> for DefaultRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ping, protocol};
+    use crate::{max_length, ping, protocol};
 
     use proptest::collection::vec;
     use proptest::prelude::*;
@@ -178,6 +185,36 @@ mod tests {
 
     proptest! {
         #[test]
+        fn to_version_with_invalid_number_of_parameters_replies_an_error(
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(value.len() != 1);
+
+            let mut router: Box<dyn Router<255, Context = _>> =
+                Box::new(DefaultRouter);
+
+            let command = Command::new(VERSION, &value).unwrap();
+
+            assert_eq!(
+                router.route(command, &mut ()),
+                Some(nack!(nack_reason::INVALID_ARGUMENTS))
+            );
+        }
+    }
+
+    #[test]
+    fn to_max_length_replies_the_const_max_len() {
+        let mut router: Box<dyn Router<92, Context = _>> =
+            Box::new(DefaultRouter);
+
+        assert_eq!(
+            router.route(max_length!(), &mut ()),
+            Some(max_length_reply!(92))
+        );
+    }
+
+    proptest! {
+        #[test]
         fn to_any_other_command_replies_a_nack_unknown_command(
             command in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
@@ -188,6 +225,7 @@ mod tests {
                 && command != NACK
                 && command != PROTOCOL
                 && command != VERSION
+                && command != MAX_LENGTH
             );
 
             let mut router: Box<dyn Router<255, Context = _>> =

@@ -19,7 +19,9 @@ pub use error::Error;
 pub use router::{DefaultRouter, Router};
 pub use version::Version;
 
-use command::{nack_reason, ACK, NACK, PROTOCOL_REPLY, VERSION, VERSION_REPLY};
+use command::{
+    nack_reason, ACK, MAX_LENGTH_REPLY, NACK, PROTOCOL_REPLY, VERSION_REPLY,
+};
 use connection::Connection;
 use error::{BufferError, CommandError, FrameError};
 use frame_buffer::FrameBuffer;
@@ -235,6 +237,16 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
             } else {
                 Err(BufferError::TooShort.into())
             }
+        } else {
+            Err(CommandError::UnexpectedReply.into())
+        }
+    }
+
+    pub fn max_length(&mut self) -> Result<u8, Error> {
+        let reply = self.command(max_length!())?;
+
+        if reply.command() == MAX_LENGTH_REPLY && reply.length() == 1 {
+            Ok(reply.value()[0])
         } else {
             Err(CommandError::UnexpectedReply.into())
         }
@@ -1340,6 +1352,59 @@ mod tests {
 
                 assert_eq!(
                     ercp.version(component, &mut []),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn max_length_sends_a_max_length_command() {
+        setup(|mut ercp| {
+            let expected_frame = max_length!().as_frame();
+            let reply_frame = max_length_reply!(0).as_frame();
+
+            ercp.connection.adapter().test_send(&reply_frame);
+
+            assert!(ercp.max_length().is_ok());
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                expected_frame
+            );
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn max_length_returns_the_received_maximum_length(
+            max_length in 0..=u8::MAX,
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = max_length_reply!(max_length).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert_eq!(
+                    ercp.max_length(),
+                    Ok(max_length)
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn max_length_returns_an_error_on_unexpected_reply(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != MAX_LENGTH_REPLY || value.len() != 1);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.max_length(),
                     Err(CommandError::UnexpectedReply.into())
                 );
             });
