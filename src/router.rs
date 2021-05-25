@@ -29,6 +29,7 @@ pub trait Router<const MAX_LEN: usize> {
             VERSION => self.handle_version(command),
             MAX_LENGTH => self.handle_max_length(command),
             DESCRIPTION => self.handle_description(command),
+            LOG => self.handle_log(command),
             _ => self.default_handler(command),
         }
     }
@@ -68,6 +69,10 @@ pub trait Router<const MAX_LEN: usize> {
 
     fn handle_description(&mut self, _command: Command) -> Option<Command> {
         Some(description_reply!(self.description()))
+    }
+
+    fn handle_log(&mut self, _command: Command) -> Option<Command> {
+        Some(ack!())
     }
 
     fn default_handler(&mut self, _command: Command) -> Option<Command> {
@@ -236,6 +241,19 @@ mod tests {
 
     proptest! {
         #[test]
+        fn to_log_replies_an_ack(message in ".{0,100}") {
+            let mut router: Box<dyn Router<255, Context = _>> =
+                Box::new(DefaultRouter);
+
+            assert_eq!(
+                router.route(Command::log(&message).unwrap(), &mut ()),
+                Some(Command::ack())
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
         fn to_any_other_command_replies_a_nack_unknown_command(
             command in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
@@ -248,16 +266,18 @@ mod tests {
                 && command != VERSION
                 && command != MAX_LENGTH
                 && command != DESCRIPTION
+                && command != LOG
             );
 
             let mut router: Box<dyn Router<255, Context = _>> =
                 Box::new(DefaultRouter);
 
             let command = Command::new(command, &value).unwrap();
-            let nack =
-                Command::new(NACK, &[nack_reason::UNKNOWN_COMMAND]).unwrap();
 
-            assert_eq!(router.route(command, &mut ()), Some(nack));
+            assert_eq!(
+                router.route(command, &mut ()),
+                Some(nack!(nack_reason::UNKNOWN_COMMAND))
+            );
         }
     }
 }

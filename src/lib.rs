@@ -273,6 +273,22 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    pub fn log(&mut self, message: &str) -> Result<(), Error> {
+        let command = Command::log(message)?;
+        self.notify(command)
+    }
+
+    pub fn sync_log(&mut self, message: &str) -> Result<(), Error> {
+        let command = Command::log(message)?;
+        let reply = self.command(command)?;
+
+        if reply.command() == ACK {
+            Ok(())
+        } else {
+            Err(CommandError::UnexpectedReply.into())
+        }
+    }
+
     // TODO: Return a status.
     fn receive(&mut self, byte: u8) {
         match self.state {
@@ -1519,6 +1535,60 @@ mod tests {
 
                 assert_eq!(
                     ercp.description(&mut []),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn log_sends_a_log(message in ".{0,100}") {
+            setup(|mut ercp| {
+                let expected_frame = Command::log(&message).unwrap().as_frame();
+
+                assert_eq!(ercp.log(&message), Ok(()));
+                assert_eq!(
+                    ercp.connection.adapter().test_receive(),
+                    expected_frame
+                );
+            })
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn sync_log_sends_a_log(message in ".{0,100}") {
+            setup(|mut ercp| {
+                let expected_frame = Command::log(&message).unwrap().as_frame();
+                let reply_frame = ack!().as_frame();
+
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert_eq!(ercp.sync_log(&message), Ok(()));
+                assert_eq!(
+                    ercp.connection.adapter().test_receive(),
+                    expected_frame
+                );
+            })
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn sync_log_returns_an_error_on_unexpected_reply(
+            message in ".{0,100}",
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != ACK);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.sync_log(&message),
                     Err(CommandError::UnexpectedReply.into())
                 );
             });

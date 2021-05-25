@@ -23,6 +23,7 @@ pub const MAX_LENGTH: u8 = 0x08;
 pub const MAX_LENGTH_REPLY: u8 = 0x09;
 pub const DESCRIPTION: u8 = 0x10;
 pub const DESCRIPTION_REPLY: u8 = 0x11;
+pub const LOG: u8 = 0xFF;
 
 pub mod nack_reason {
     pub const NO_REASON: u8 = 0x00;
@@ -94,6 +95,10 @@ impl<'a> Command<'a> {
 
     pub fn description_reply(description: &'a str) -> Result<Self, FrameError> {
         Self::new(DESCRIPTION_REPLY, description.as_bytes())
+    }
+
+    pub fn log(message: &'a str) -> Result<Self, FrameError> {
+        Self::new(LOG, message.as_bytes())
     }
 
     pub fn command(&self) -> u8 {
@@ -343,6 +348,21 @@ mod test {
                 Ok(Command {
                     command: DESCRIPTION_REPLY,
                     value: description.as_bytes(),
+                })
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn log_returns_a_log(
+            message in ".{0,100}",
+        ) {
+            assert_eq!(
+                Command::log(&message),
+                Ok(Command {
+                    command: LOG,
+                    value: message.as_bytes(),
                 })
             );
         }
