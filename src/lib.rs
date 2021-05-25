@@ -391,7 +391,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
-    fn reset_state(&mut self) {
+    pub fn reset_state(&mut self) {
         self.state = State::Ready;
         self.rx_frame.reset();
     }
