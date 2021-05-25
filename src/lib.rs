@@ -243,6 +243,21 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    #[cfg(any(feature = "std", test))]
+    pub fn version_to_string(
+        &mut self,
+        component: u8,
+    ) -> Result<String, Error> {
+        let reply = self.command(version!(component))?;
+
+        if reply.command() == VERSION_REPLY {
+            let version = String::from_utf8(reply.value().into())?;
+            Ok(version)
+        } else {
+            Err(CommandError::UnexpectedReply.into())
+        }
+    }
+
     pub fn max_length(&mut self) -> Result<u8, Error> {
         let reply = self.command(max_length!())?;
 
@@ -268,6 +283,18 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
             } else {
                 Err(BufferError::TooShort.into())
             }
+        } else {
+            Err(CommandError::UnexpectedReply.into())
+        }
+    }
+
+    #[cfg(any(feature = "std", test))]
+    pub fn description_to_string(&mut self) -> Result<String, Error> {
+        let reply = self.command(description!())?;
+
+        if reply.command() == DESCRIPTION_REPLY {
+            let description = String::from_utf8(reply.value().into())?;
+            Ok(description)
         } else {
             Err(CommandError::UnexpectedReply.into())
         }
@@ -1398,6 +1425,64 @@ mod tests {
         }
     }
 
+    proptest! {
+        #[test]
+            fn version_to_string_sends_a_version_command(
+                component in 0..=u8::MAX,
+            ) {
+            setup(|mut ercp| {
+                let expected_frame = version!(component).as_frame();
+                let reply_frame = version_reply!("").as_frame();
+
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                assert!(ercp.version_to_string(component).is_ok());
+                assert_eq!(
+                    ercp.connection.adapter().test_receive(),
+                    expected_frame
+                );
+            })
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_to_string_returns_the_version(
+            component in 0..=u8::MAX,
+            version in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = version_reply!(&version).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                let result = ercp.version_to_string(component);
+                assert!(result.is_ok());
+                assert_eq!(&result.unwrap(), &version);
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_to_string_returns_an_error_on_unexpected_reply(
+            component in 0..=u8::MAX,
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != VERSION_REPLY);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.version_to_string(component),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
     #[test]
     fn max_length_sends_a_max_length_command() {
         setup(|mut ercp| {
@@ -1535,6 +1620,58 @@ mod tests {
 
                 assert_eq!(
                     ercp.description(&mut []),
+                    Err(CommandError::UnexpectedReply.into())
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn description_to_string_sends_a_description_command() {
+        setup(|mut ercp| {
+            let expected_frame = description!().as_frame();
+            let reply_frame = description_reply!("").as_frame();
+
+            ercp.connection.adapter().test_send(&reply_frame);
+
+            assert!(ercp.description_to_string().is_ok());
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                expected_frame
+            );
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn description_to_string_returns_the_description(
+            description in ".{1,100}",
+        ) {
+            setup(|mut ercp| {
+                let reply_frame = description_reply!(&description).as_frame();
+                ercp.connection.adapter().test_send(&reply_frame);
+
+                let result = ercp.description_to_string();
+                assert!(result.is_ok());
+                assert_eq!(&result.unwrap(), &description);
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn description_to_string_returns_an_error_on_unexpected_reply(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            prop_assume!(command != DESCRIPTION_REPLY);
+
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                assert_eq!(
+                    ercp.description_to_string(),
                     Err(CommandError::UnexpectedReply.into())
                 );
             });

@@ -1,11 +1,17 @@
 // TODO: Documentation
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(any(feature = "std", test))]
+use std::string::FromUtf8Error;
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     IoError(IoError),
     FrameError(FrameError),
     CommandError(CommandError),
     BufferError(BufferError),
+
+    #[cfg(any(feature = "std", test))]
+    FromUtf8Error(FromUtf8Error),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,5 +57,12 @@ impl From<CommandError> for Error {
 impl From<BufferError> for Error {
     fn from(buffer_error: BufferError) -> Self {
         Error::BufferError(buffer_error)
+    }
+}
+
+#[cfg(any(feature = "std", test))]
+impl From<FromUtf8Error> for Error {
+    fn from(utf8_error: FromUtf8Error) -> Self {
+        Error::FromUtf8Error(utf8_error)
     }
 }
