@@ -163,13 +163,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    // TODO: Document that the user MUST call reset_state() after processing the
+    // reply.
     pub fn command(&mut self, command: Command) -> Result<Command, Error> {
         self.connection.send(command)?;
-
-        // TODO: When to reset the frame? It is not possible here since we don’t
-        // copy the value. Maybe we should?
-        // self.rx_frame.reset();
-
         self.wait_for_command().map_err(Into::into)
     }
 
@@ -179,10 +176,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     pub fn ping(&mut self) -> Result<(), Error> {
-        let reply = self.command(ping!())?;
+        let result = self.do_ping();
+        self.reset_state();
+        result
+    }
 
-        // TODO: Reset the frame buffer. Is it here, wouldn’t it be better to
-        // copy the command instead?
+    fn do_ping(&mut self) -> Result<(), Error> {
+        let reply = self.command(ping!())?;
 
         if reply.command() == ACK {
             Ok(())
@@ -192,6 +192,12 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     pub fn reset(&mut self) -> Result<(), Error> {
+        let result = self.do_reset();
+        self.reset_state();
+        result
+    }
+
+    fn do_reset(&mut self) -> Result<(), Error> {
         let reply = self.command(reset!())?;
 
         match reply.command() {
@@ -209,6 +215,12 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     pub fn protocol(&mut self) -> Result<Version, Error> {
+        let result = self.do_protocol();
+        self.reset_state();
+        result
+    }
+
+    fn do_protocol(&mut self) -> Result<Version, Error> {
         let reply = self.command(protocol!())?;
 
         if reply.command() == PROTOCOL_REPLY && reply.length() == 3 {
@@ -225,6 +237,16 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     pub fn version(
+        &mut self,
+        component: u8,
+        version: &mut [u8],
+    ) -> Result<usize, Error> {
+        let result = self.do_version(component, version);
+        self.reset_state();
+        result
+    }
+
+    fn do_version(
         &mut self,
         component: u8,
         version: &mut [u8],
@@ -248,6 +270,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         &mut self,
         component: u8,
     ) -> Result<String, Error> {
+        let result = self.do_version_to_string(component);
+        self.reset_state();
+        result
+    }
+
+    #[cfg(any(feature = "std", test))]
+    fn do_version_to_string(&mut self, component: u8) -> Result<String, Error> {
         let reply = self.command(version!(component))?;
 
         if reply.command() == VERSION_REPLY {
@@ -259,6 +288,12 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     pub fn max_length(&mut self) -> Result<u8, Error> {
+        let result = self.do_max_length();
+        self.reset_state();
+        result
+    }
+
+    fn do_max_length(&mut self) -> Result<u8, Error> {
         let reply = self.command(max_length!())?;
 
         if reply.command() == MAX_LENGTH_REPLY && reply.length() == 1 {
@@ -269,6 +304,15 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     pub fn description(
+        &mut self,
+        description: &mut [u8],
+    ) -> Result<usize, Error> {
+        let result = self.do_description(description);
+        self.reset_state();
+        result
+    }
+
+    fn do_description(
         &mut self,
         description: &mut [u8],
     ) -> Result<usize, Error> {
@@ -290,6 +334,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
 
     #[cfg(any(feature = "std", test))]
     pub fn description_to_string(&mut self) -> Result<String, Error> {
+        let result = self.do_description_to_string();
+        self.reset_state();
+        result
+    }
+
+    #[cfg(any(feature = "std", test))]
+    fn do_description_to_string(&mut self) -> Result<String, Error> {
         let reply = self.command(description!())?;
 
         if reply.command() == DESCRIPTION_REPLY {
@@ -306,6 +357,12 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     pub fn sync_log(&mut self, message: &str) -> Result<(), Error> {
+        let result = self.do_sync_log(message);
+        self.reset_state();
+        result
+    }
+
+    fn do_sync_log(&mut self, message: &str) -> Result<(), Error> {
         let command = Command::log(message)?;
         let reply = self.command(command)?;
 
