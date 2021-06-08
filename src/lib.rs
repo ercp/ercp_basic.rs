@@ -1279,6 +1279,22 @@ mod tests {
         }
     }
 
+    proptest! {
+        #[test]
+        fn ping_resets_the_state(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.ping().ok();
+                assert_eq!(ercp.state, State::Ready);
+            });
+        }
+    }
+
     #[test]
     fn reset_sends_a_reset() {
         setup(|mut ercp| {
@@ -1324,6 +1340,22 @@ mod tests {
                     ercp.reset(),
                     Err(CommandError::UnexpectedReply.into())
                 );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn reset_resets_the_state(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.reset().ok();
+                assert_eq!(ercp.state, State::Ready);
             });
         }
     }
@@ -1382,6 +1414,22 @@ mod tests {
                     ercp.protocol(),
                     Err(CommandError::UnexpectedReply.into())
                 );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn protocol_resets_the_state(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.protocol().ok();
+                assert_eq!(ercp.state, State::Ready);
             });
         }
     }
@@ -1484,6 +1532,23 @@ mod tests {
 
     proptest! {
         #[test]
+        fn version_resets_the_state(
+            component in 0..=u8::MAX,
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.version(component, &mut []).ok();
+                assert_eq!(ercp.state, State::Ready);
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
             fn version_to_string_sends_a_version_command(
                 component in 0..=u8::MAX,
             ) {
@@ -1540,6 +1605,23 @@ mod tests {
         }
     }
 
+    proptest! {
+        #[test]
+        fn version_to_string_resets_the_state(
+            component in 0..=u8::MAX,
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.version_to_string(component).ok();
+                assert_eq!(ercp.state, State::Ready);
+            });
+        }
+    }
+
     #[test]
     fn max_length_sends_a_max_length_command() {
         setup(|mut ercp| {
@@ -1589,6 +1671,22 @@ mod tests {
                     ercp.max_length(),
                     Err(CommandError::UnexpectedReply.into())
                 );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn max_length_resets_the_state(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.max_length().ok();
+                assert_eq!(ercp.state, State::Ready);
             });
         }
     }
@@ -1683,6 +1781,22 @@ mod tests {
         }
     }
 
+    proptest! {
+        #[test]
+        fn description_resets_the_state(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.description(&mut []).ok();
+                assert_eq!(ercp.state, State::Ready);
+            });
+        }
+    }
+
     #[test]
     fn description_to_string_sends_a_description_command() {
         setup(|mut ercp| {
@@ -1737,6 +1851,22 @@ mod tests {
 
     proptest! {
         #[test]
+        fn description_to_string_resets_the_state(
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.description_to_string().ok();
+                assert_eq!(ercp.state, State::Ready);
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
         fn log_sends_a_log(message in ".{0,100}") {
             setup(|mut ercp| {
                 let expected_frame = Command::log(&message).unwrap().as_frame();
@@ -1785,6 +1915,23 @@ mod tests {
                     ercp.sync_log(&message),
                     Err(CommandError::UnexpectedReply.into())
                 );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn sync_log_resets_the_state(
+            message in ".{0,100}",
+            command in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+        ) {
+            setup(|mut ercp| {
+                let reply = Command::new(command, &value).unwrap();
+                ercp.connection.adapter().test_send(&reply.as_frame());
+
+                ercp.sync_log(&message).ok();
+                assert_eq!(ercp.state, State::Ready);
             });
         }
     }
