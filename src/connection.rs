@@ -30,8 +30,7 @@ impl<A: Adapter> Connection<A> {
     }
 
     pub fn send(&mut self, command: Command) -> Result<(), IoError> {
-        // TODO: Remove reference when iterating on arrays lands on stable.
-        for &byte in &[b'E', b'R', b'C', b'P', b'B'] {
+        for byte in [b'E', b'R', b'C', b'P', b'B'] {
             self.write(byte)?;
         }
 
