@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 embedded-crc-macros = "0.1.0"
 embedded-hal = { version = "0.2.5", optional = true }
+ercp_basic_macros = { path = "macros" }
 nb = { version = "1.0.0", optional = true }
 serialport = { version = "4.0.1", optional = true }
 
@@ -20,3 +21,8 @@ proptest = "1.0.0"
 embedded = ["embedded-hal", "nb"]
 host = ["serialport", "std"]
 std = []
+
+[workspace]
+members = [
+    "macros",
+]
