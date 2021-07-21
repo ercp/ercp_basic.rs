@@ -1,8 +1,9 @@
 // TODO: Module doc.
 
+use serialport::SerialPort;
+
 use crate::adapter::Adapter;
 use crate::error::IoError;
-use serialport::SerialPort;
 
 pub struct SerialPortAdapter {
     port: Box<dyn SerialPort>,

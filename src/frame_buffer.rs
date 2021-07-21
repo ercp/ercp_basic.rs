@@ -6,7 +6,6 @@ use crate::error::FrameError;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FrameBuffer<const MAX_LEN: usize> {
-    // state: Field,
     command: u8,
     length: u8,
     buffer: [u8; MAX_LEN],
