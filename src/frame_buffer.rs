@@ -1,30 +1,17 @@
 // TODO: Better documentation.
 //! ERCP Basic framing tools.
 
+use heapless::Vec;
+
 use crate::command::Command;
 use crate::error::FrameError;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct FrameBuffer<const MAX_LEN: usize> {
     command: u8,
     length: u8,
-    buffer: [u8; MAX_LEN],
-    size: usize,
+    value: Vec<u8, MAX_LEN>,
     crc: u8,
-}
-
-// IDEA: Derive default when it is implemented for arbritrary-sized arrays.
-impl<const MAX_LEN: usize> Default for FrameBuffer<MAX_LEN> {
-    fn default() -> Self {
-        Self {
-            // state: Field::Command,
-            command: 0x00,
-            length: 0x00,
-            buffer: [0; MAX_LEN],
-            size: 0,
-            crc: 0x00,
-        }
-    }
 }
 
 impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
@@ -40,16 +27,13 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
         self.command
     }
 
+    #[cfg(test)]
     pub fn length(&self) -> u8 {
         self.length
     }
 
     pub fn value(&self) -> &[u8] {
-        &self.buffer[0..self.size]
-    }
-
-    pub fn size(&self) -> usize {
-        self.size
+        self.value.as_slice()
     }
 
     pub fn crc(&self) -> u8 {
@@ -70,10 +54,9 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     }
 
     pub fn push_value(&mut self, byte: u8) -> Result<(), FrameError> {
-        if self.size < self.length as usize {
-            // NOTE: size < length <= MAX_LEN, so we are in the bounds.
-            self.buffer[self.size] = byte;
-            self.size += 1;
+        if self.value.len() < self.length.into() {
+            // NOTE: value.len() < length <= MAX_LEN == value.capacity().
+            self.value.push(byte).ok();
             Ok(())
         } else {
             Err(FrameError::TooLong)
@@ -85,7 +68,7 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     }
 
     pub fn value_is_complete(&self) -> bool {
-        self.size == self.length.into()
+        self.value.len() == self.length.into()
     }
 
     pub fn check_frame(&self) -> Result<Command, FrameError> {
@@ -110,20 +93,11 @@ mod test {
 
     fn frame_buffer() -> impl Strategy<Value = FrameBuffer<255>> {
         (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
-            |(command, value)| {
-                let mut frame_buffer = FrameBuffer {
-                    command,
-                    length: value.len() as u8,
-                    buffer: [0; 255],
-                    size: value.len(),
-                    crc: crc(command, &value),
-                };
-
-                for (i, byte) in value.into_iter().enumerate() {
-                    frame_buffer.buffer[i] = byte;
-                }
-
-                frame_buffer
+            |(command, value)| FrameBuffer {
+                command,
+                length: value.len() as u8,
+                value: Vec::from_slice(&value).unwrap(),
+                crc: crc(command, &value),
             },
         )
     }
@@ -136,8 +110,7 @@ mod test {
         let expected = FrameBuffer {
             command: 0x00,
             length: 0x00,
-            buffer: [0; 255],
-            size: 0,
+            value: Vec::new(),
             crc: 0x00,
         };
 
@@ -148,19 +121,17 @@ mod test {
 
     #[test]
     fn reset_resets_to_an_empty_frame_buffer() {
-        let mut frame_buffer = FrameBuffer {
+        let mut frame_buffer = FrameBuffer::<255> {
             command: 0xAA,
             length: 0x55,
-            buffer: [0xAA; 255],
-            size: 0x55,
+            value: Vec::from_slice(&[0xAA; 0x55]).unwrap(),
             crc: 0xAA,
         };
 
-        let expected = FrameBuffer {
+        let expected = FrameBuffer::<255> {
             command: 0x00,
             length: 0x00,
-            buffer: [0; 255],
-            size: 0,
+            value: Vec::new(),
             crc: 0x00,
         };
 
@@ -186,23 +157,11 @@ mod test {
 
     proptest! {
         #[test]
-        fn value_returns_a_slice_from_the_buffer(
-            mut frame_buffer in frame_buffer(),
-            size in 0..=u8::MAX as usize
-        ) {
-            frame_buffer.size = size;
-
+        fn value_returns_the_value_as_a_slice(frame_buffer in frame_buffer()) {
             assert_eq!(
                 frame_buffer.value(),
-                &frame_buffer.buffer[0..size]
+                frame_buffer.value.as_slice()
             );
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn size_returns_the_current_size(frame_buffer in frame_buffer()) {
-            assert_eq!(frame_buffer.size(), frame_buffer.size);
         }
     }
 
@@ -259,7 +218,7 @@ mod test {
 
             for (i, byte) in value.into_iter().enumerate() {
                 assert!(frame_buffer.push_value(byte).is_ok());
-                assert_eq!(frame_buffer.buffer[i], byte);
+                assert_eq!(frame_buffer.value[i], byte);
             }
         }
     }
