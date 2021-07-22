@@ -19,8 +19,8 @@ embedded-crc-macros = "0.1.0"
 proptest = "1.0.0"
 
 [features]
-embedded = ["embedded-hal", "nb"]
-host = ["serialport", "std"]
+serial = ["embedded-hal", "nb"]
+serial-host = ["serialport", "std"]
 std = []
 
 [workspace]
