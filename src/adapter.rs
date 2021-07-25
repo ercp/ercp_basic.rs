@@ -3,6 +3,8 @@
 
 #[cfg(feature = "rtt")]
 mod rtt;
+#[cfg(feature = "rtt-probe-rs")]
+mod rtt_probe_rs;
 #[cfg(feature = "serial")]
 mod serial;
 #[cfg(feature = "serial-host")]
@@ -10,6 +12,8 @@ mod serial_host;
 
 #[cfg(feature = "rtt")]
 pub use rtt::RttAdapter;
+#[cfg(feature = "rtt-probe-rs")]
+pub use rtt_probe_rs::RttProbeRsAdapter;
 #[cfg(feature = "serial")]
 pub use serial::SerialAdapter;
 #[cfg(feature = "serial-host")]

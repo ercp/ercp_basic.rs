@@ -14,6 +14,7 @@ mkShell {
     # Project dependencies
     pkgconfig
     libudev
+    libusb
 
     # Other tools
     git

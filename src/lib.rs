@@ -1066,7 +1066,9 @@ mod tests {
             ercp.process(&mut ());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
-                &[]
+                // NOTE: Type inference does not work due to an issue in
+                // serde-yaml: https://github.com/dtolnay/serde-yaml/issues/140
+                &[] as &[u8]
             );
         }
     }

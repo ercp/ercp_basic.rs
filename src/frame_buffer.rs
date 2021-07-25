@@ -68,7 +68,9 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     }
 
     pub fn value_is_complete(&self) -> bool {
-        self.value.len() == self.length.into()
+        // NOTE: Type inference does not work due to an issue in serde-yaml:
+        // https://github.com/dtolnay/serde-yaml/issues/140
+        self.value.len() == self.length as usize
     }
 
     pub fn check_frame(&self) -> Result<Command, FrameError> {
