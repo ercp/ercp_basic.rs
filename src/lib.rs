@@ -177,7 +177,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         Ok(())
     }
 
-    #[command]
+    #[command(self)]
     pub fn ping(&mut self) -> Result<(), Error> {
         let reply = self.command(ping!())?;
 
@@ -188,7 +188,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
-    #[command]
+    #[command(self)]
     pub fn reset(&mut self) -> Result<(), Error> {
         let reply = self.command(reset!())?;
 
@@ -206,7 +206,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
-    #[command]
+    #[command(self)]
     pub fn protocol(&mut self) -> Result<Version, Error> {
         let reply = self.command(protocol!())?;
 
@@ -223,7 +223,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
-    #[command]
+    #[command(self)]
     pub fn version(
         &mut self,
         component: u8,
@@ -244,7 +244,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     #[cfg(any(feature = "std", test))]
-    #[command]
+    #[command(self)]
     pub fn version_as_string(
         &mut self,
         component: u8,
@@ -259,7 +259,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
-    #[command]
+    #[command(self)]
     pub fn max_length(&mut self) -> Result<u8, Error> {
         let reply = self.command(max_length!())?;
 
@@ -270,7 +270,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
-    #[command]
+    #[command(self)]
     pub fn description(
         &mut self,
         description: &mut [u8],
@@ -292,7 +292,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     #[cfg(any(feature = "std", test))]
-    #[command]
+    #[command(self)]
     pub fn description_as_string(&mut self) -> Result<String, Error> {
         let reply = self.command(description!())?;
 
@@ -309,7 +309,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         self.notify(command)
     }
 
-    #[command]
+    #[command(self)]
     pub fn sync_log(&mut self, message: &str) -> Result<(), Error> {
         let command = Command::log(message)?;
         let reply = self.command(command)?;

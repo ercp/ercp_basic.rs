@@ -4,8 +4,15 @@ use quote::quote;
 use syn::{parse_macro_input, FnArg, Ident, ItemFn, Signature};
 
 #[proc_macro_attribute]
-pub fn command(_metadata: TokenStream, input: TokenStream) -> TokenStream {
+pub fn command(metadata: TokenStream, input: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(input as ItemFn);
+
+    let ercp = if metadata.is_empty() {
+        quote! { self.ercp }
+    } else {
+        // IDEA: Check the value and provide a useful error.
+        metadata.into()
+    };
 
     // We want to wrap the function so we can reset the state of the ERCP driver
     // after its execution, regardless its result.
@@ -44,8 +51,7 @@ pub fn command(_metadata: TokenStream, input: TokenStream) -> TokenStream {
         #(#attrs)*
         #vis #wrapper_sig {
             let result = self.#wrapped(#(#params),*);
-            // TODO: Make it work when ercp is not self.
-            self.reset_state();
+            #ercp.reset_state();
             result
         }
 
