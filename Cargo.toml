@@ -21,6 +21,8 @@ embedded-crc-macros = "0.1.0"
 proptest = "1.0.0"
 
 [features]
+# default = ["all"] # TODO: Remove before commit.
+all = ["rtt", "rtt-probe-rs", "serial", "serial-host"]
 rtt = ["rtt-target"]
 rtt-probe-rs = ["probe-rs-rtt", "std"]
 serial = ["embedded-hal", "nb"]

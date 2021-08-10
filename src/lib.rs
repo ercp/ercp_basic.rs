@@ -1,5 +1,12 @@
-//! An implementation of ERCP Basic in Rust.
+// TODO: Document all unwrap and avoid them.
+// TODO: Rework error types.
+// TODO: Add logs (using defmt).
+// TODO: Update the CONTRIBUTING to mention Conventional Commits.
 
+// TODO: 3. Try to do a zero copy echo command.
+// TODO: Flush after write on the connection.
+
+#![doc = include_str!("../README.md")]
 #![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 #![deny(unsafe_code)]
 
@@ -29,7 +36,23 @@ use connection::Connection;
 use error::{BufferError, CommandError, FrameError};
 use frame_buffer::FrameBuffer;
 
-/// An ERCP Basic instance.
+/// An ERCP Basic driver.
+///
+/// A driver can be instanciated on any connection for which an [`Adapter`] is
+/// provided. There are several built-in feature-gated adapters:
+///
+/// * for embedded:
+///     * [`adapter::SerialAdapter`] for [`embedded_hal::serial`] (feature:
+///       `serial`),
+///     * [`adapter::RttAdapter`] for [`rtt_target`] (feature: `rtt`);
+/// * for hosts (to build tools):
+///     * [`adapter::SerialPortAdapter`] for [`serialport`] (feature:
+///       `serial-host`),
+///     * [`adapter::RttProbeRsAdapter`] for [`probe_rs_rtt`] (feature:
+///       `rtt-probe-rs`).
+///
+/// If this is not sufficient for your use case, you can still write your own by
+/// implementing the [`Adapter`] trait.
 #[derive(Debug)]
 pub struct ErcpBasic<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize> {
     state: State,
@@ -85,6 +108,13 @@ impl InitState {
         }
     }
 }
+
+// - 2 buffers (RX/TX) non circulaires
+// - Si longueur pas atteinte au bout d’un timeout => RAZ
+// - Calcul du CRC après EOT
+// - Si pas OK => trame d’erreur
+// - Si OK => Construction d’une frame::Frame + routage vers la commande
+//   - Frame.value => slice in-place dans le buffer
 
 impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ErcpBasic<A, R, MAX_LEN>
