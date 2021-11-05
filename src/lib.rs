@@ -296,7 +296,8 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// ```
     pub fn command(&mut self, command: Command) -> Result<Command, Error> {
         self.connection.send(command)?;
-        self.wait_for_command().map_err(Into::into)
+        self.wait_for_command();
+        self.rx_frame.check_frame().map_err(Into::into)
     }
 
     /// Sends a notification to the peer device.
@@ -616,7 +617,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     /// Blocks until a complete frame has been received.
-    fn wait_for_command(&mut self) -> Result<Command, FrameError> {
+    fn wait_for_command(&mut self) {
         while !self.complete_frame_received() {
             // TODO: Do different things depending on features.
 
@@ -626,8 +627,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
             // TODO: WFI on Cortex-M.
             // TODO: Timeout (idea: use a struct field)
         }
-
-        self.rx_frame.check_frame()
     }
 }
 
