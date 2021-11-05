@@ -56,12 +56,16 @@ use frame_buffer::FrameBuffer;
 ///
 /// To get a minimal ERCP Basic enabled device, you need to:
 ///
-/// * instantiate an ERCP Basic driver on the wanted connection with [`ErcpBasic::new`],
-/// * call [`ErcpBasic::handle_data`] regularly to handle incoming data (this
-///   should be done in the handler for the “data available” event of your
-///   connection),
-/// * call [`ErcpBasic::process`] regularly to process incoming
-///   commands.
+/// * instantiate an ERCP Basic driver on the wanted connection with
+///   [`ErcpBasic::new`],
+/// * call [`ErcpBasic::accept_command`] in a loop.
+///
+/// To have a more fine-grained control on when the different steps occur, you
+/// can replace the [`ErcpBasic::accept_command`] loop with:
+/// * a call to [`ErcpBasic::handle_data`] to handle incoming data (this should
+///   be done in the handler for the “data available” event of your connection),
+/// * a call to [`ErcpBasic::process`] to process incoming commands when a
+///   complete frame is available, typically in a dedicated task / thread.
 #[derive(Debug)]
 pub struct ErcpBasic<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize> {
     state: State,
@@ -228,6 +232,34 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
 
             self.reset_state();
         }
+    }
+
+    /// Blocks until a command has been received an process it.
+    ///
+    /// This is an alternative to calling [`ErcpBasic::handle_data`] and
+    /// [`ErcpBasic::process`] directly which can be used to integrate ERCP
+    /// Basic in a very simple event loop:
+    ///
+    /// ```
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, error::IoError};
+    /// #
+    /// # struct DummyAdapter;
+    /// #
+    /// # impl ercp_basic::Adapter for DummyAdapter {
+    /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+    /// # }
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
+    /// loop {
+    ///     ercp.accept_command(&mut ());
+    ///
+    ///     // Optionally do some post-processing.
+    /// }
+    /// ```
+    pub fn accept_command(&mut self, context: &mut R::Context) {
+        self.wait_for_command();
+        self.process(context);
     }
 
     /// Sends a command to the peer device, and waits for a reply.
