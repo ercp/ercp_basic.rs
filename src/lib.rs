@@ -185,15 +185,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         self.state == State::Complete
     }
 
-    /// Returns the next command to process.
-    pub fn next_command(&self) -> Option<Result<Command, FrameError>> {
-        if self.complete_frame_received() {
-            Some(self.rx_frame.check_frame())
-        } else {
-            None
-        }
-    }
-
     // TODO: Async version.
     /// Blocks until a complete frame has been received.
     pub fn wait_for_command(&mut self) -> Result<Command, FrameError> {
@@ -1142,59 +1133,6 @@ mod tests {
         setup(|ercp| {
             assert!(!ercp.complete_frame_received());
         });
-    }
-
-    proptest! {
-        #[test]
-        fn next_command_returns_the_received_command(
-            ercp in ercp(State::Complete),
-        ) {
-            let command = ercp.rx_frame.check_frame().unwrap();
-            assert_eq!(ercp.next_command(), Some(Ok(command)));
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn next_command_returns_an_error_if_the_received_frame_is_corrupted(
-            mut ercp in ercp(State::Complete),
-            bad_crc in 0..=u8::MAX,
-        ) {
-            prop_assume!(
-                bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
-            );
-
-            ercp.rx_frame.set_crc(bad_crc);
-            assert_eq!(ercp.next_command(), Some(Err(FrameError::InvalidCrc)));
-        }
-    }
-
-    // TODO: Enable when the design makes it possible.
-    // proptest! {
-    //     #[test]
-    //     fn next_command_resets_state_if_the_received_frame_is_corrupted(
-    //         mut ercp in ercp(State::Complete),
-    //         bad_crc in 0..=u8::MAX,
-    //     ) {
-    //         prop_assume!(
-    //             bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
-    //         );
-
-    //         ercp.rx_frame.set_crc(bad_crc);
-
-    //         let _ = ercp.next_command();
-    //         assert_eq!(ercp.state, State::Ready);
-    //         assert_eq!(ercp.rx_frame, FrameBuffer::default());
-    //     }
-    // }
-
-    proptest! {
-        #[test]
-        fn next_command_returns_none_if_no_command_waiting(
-            ercp in ercp(State::Ready),
-        ) {
-            assert_eq!(ercp.next_command(), None);
-        }
     }
 
     proptest! {
