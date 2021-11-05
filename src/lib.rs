@@ -185,22 +185,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         self.state == State::Complete
     }
 
-    // TODO: Async version.
-    /// Blocks until a complete frame has been received.
-    pub fn wait_for_command(&mut self) -> Result<Command, FrameError> {
-        while !self.complete_frame_received() {
-            // TODO: Do different things depending on features.
-
-            // TODO: Only with the blocking feature.
-            self.handle_data();
-
-            // TODO: WFI on Cortex-M.
-            // TODO: Timeout (idea: use a struct field)
-        }
-
-        self.rx_frame.check_frame()
-    }
-
     /// Processes any received command.
     ///
     /// The context can be used by your router to make any resource or data
@@ -556,6 +540,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     // TODO: Return a status.
+    /// Receives a byte.
     fn receive(&mut self, byte: u8) {
         match self.state {
             State::Ready => {
@@ -628,6 +613,21 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
                 // Ignore unexpected data.
             }
         }
+    }
+
+    /// Blocks until a complete frame has been received.
+    fn wait_for_command(&mut self) -> Result<Command, FrameError> {
+        while !self.complete_frame_received() {
+            // TODO: Do different things depending on features.
+
+            // TODO: Only with the blocking feature.
+            self.handle_data();
+
+            // TODO: WFI on Cortex-M.
+            // TODO: Timeout (idea: use a struct field)
+        }
+
+        self.rx_frame.check_frame()
     }
 }
 
