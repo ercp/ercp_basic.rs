@@ -1,6 +1,7 @@
 //! An implementation of ERCP Basic in Rust.
 
 #![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(unsafe_code)]
 
 pub mod adapter;
@@ -439,8 +440,8 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// the result as a [`String`].
     ///
     /// This is the same as [`ErcpBasic::version`], but returning an owned
-    /// [`String`] instead of writing to a provided buffer. This function is
-    /// only available with the `std` feature is enabled.
+    /// [`String`] instead of writing to a provided buffer.
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     #[cfg(any(feature = "std", test))]
     #[command(self)]
     pub fn version_as_string(
@@ -510,8 +511,8 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// [`String`].
     ///
     /// This is the same as [`ErcpBasic::description`], but returning an owned
-    /// [`String`] instead of writing to a provided buffer. This function is
-    /// only available with the `std` feature is enabled.
+    /// [`String`] instead of writing to a provided buffer.
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     #[cfg(any(feature = "std", test))]
     #[command(self)]
     pub fn description_as_string(&mut self) -> Result<String, Error> {
