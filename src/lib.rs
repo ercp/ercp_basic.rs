@@ -29,7 +29,38 @@ use connection::Connection;
 use error::{BufferError, CommandError, FrameError};
 use frame_buffer::FrameBuffer;
 
-/// An ERCP Basic instance.
+/// An ERCP Basic driver.
+///
+/// A driver can be instanciated on any connection for which an [`Adapter`] is
+/// provided. There are several built-in adapters:
+///
+/// * for embedded:
+///     * [`adapter::SerialAdapter`] for [`embedded_hal::serial`] (feature:
+///       `serial`),
+///     * [`adapter::RttAdapter`] for [`rtt_target`] (feature: `rtt`);
+/// * for hosts (to build tools):
+///     * [`adapter::SerialPortAdapter`] for [`serialport`] (feature:
+///       `serial-host`),
+///     * [`adapter::RttProbeRsAdapter`] for [`probe_rs_rtt`] (feature:
+///       `rtt-probe-rs`).
+///
+/// If this is not sufficient for your use case, you can still write your own by
+/// implementing the [`Adapter`] trait.
+///
+/// In addition to the adapter, you need do provide a [`Router`] for handling
+/// incoming commands. [`DefaultRouter`] handles the built-in commands out of
+/// the box, but you can write your own to extend it with custom commands.
+///
+/// # Minimal requirements
+///
+/// To get a minimal ERCP Basic enabled device, you need to:
+///
+/// * instantiate an ERCP Basic driver on the wanted connection with [`ErcpBasic::new`],
+/// * call [`ErcpBasic::handle_data`] regularly to handle incoming data (this
+///   should be done in the handler for the “data available” event of your
+///   connection),
+/// * call [`ErcpBasic::process`] regularly to process incoming
+///   commands.
 #[derive(Debug)]
 pub struct ErcpBasic<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize> {
     state: State,
@@ -89,6 +120,31 @@ impl InitState {
 impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ErcpBasic<A, R, MAX_LEN>
 {
+    /// Instantiates an ERCP Basic driver.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ercp_basic::{ErcpBasic, DefaultRouter};
+    ///
+    /// # use ercp_basic::{Adapter, error::IoError};
+    /// #
+    /// # struct SomeAdapter;
+    /// #
+    /// # impl SomeAdapter { fn new() -> Self { SomeAdapter } }
+    /// #
+    /// # impl ercp_basic::Adapter for SomeAdapter {
+    /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+    /// # }
+    /// #
+    /// // Instantiate an adapter matching your underlying layer.
+    /// let adapter = SomeAdapter::new();
+    ///
+    /// // Instantiate an ERCP Basic driver using the default router. Here we
+    /// // need to partially annotate the type to provide the MAX_LEN parameter.
+    /// let ercp: ErcpBasic<_, _, 255> = ErcpBasic::new(adapter, DefaultRouter);
+    /// ```
     pub fn new(adapter: A, router: R) -> Self {
         Self {
             state: State::Ready,
@@ -98,10 +154,19 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Releases the `adapter` and `router`.
     pub fn release(self) -> (A, R) {
         (self.connection.release(), self.router)
     }
 
+    /// Handles incoming data.
+    ///
+    /// This function reads data from the connection and processes it until
+    /// there is nothing more to read.
+    ///
+    /// You **must** call this function regularly somewhere in your code for
+    /// ERCP Basic to work properly. Typical places to call it include your
+    /// connection interrupt handler, an event loop, etc.
     pub fn handle_data(&mut self) {
         loop {
             match self.connection.read() {
@@ -144,6 +209,30 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         self.rx_frame.check_frame()
     }
 
+    /// Processes any received command.
+    ///
+    /// The context can be used by your router to make any resource or data
+    /// available during the command processing. If you are using the
+    /// [`DefaultRouter`], where the context is `()`, you can call `process`
+    /// this way:
+    ///
+    /// ```
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, error::IoError};
+    /// #
+    /// # struct DummyAdapter;
+    /// #
+    /// # impl ercp_basic::Adapter for DummyAdapter {
+    /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+    /// # }
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
+    /// ercp.process(&mut ());
+    /// ```
+    ///
+    /// You **must** call this function regularly somewhere in your code for
+    /// ERCP Basic to work properly. It could be run for instance in a specific
+    /// task or thread.
     pub fn process(&mut self, context: &mut R::Context) {
         // TODO: Use next_command once it is in a sub-struct.
         if self.complete_frame_received() {
@@ -165,18 +254,92 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
-    // TODO: Document that the user MUST call reset_state() after processing the
-    // reply.
+    /// Sends a command to the peer device, and waits for a reply.
+    ///
+    /// This function is meant to be used to build *command methods* in a device
+    /// driver, like in the example below.
+    ///
+    /// The returned value is the command (i.e. the reply) received from the
+    /// peer device. To avoid copies, its value refers to the receive buffer, so
+    /// you must free it after processing it, by using
+    /// [`ErcpBasic::reset_state`]. If you need this value later, you should
+    /// copy it yourself in some place.
+    ///
+    /// If you forget to call [`ErcpBasic::reset_state`], your device will not
+    /// be able to receive any more commands. This is thankfully automatically
+    /// handled if you use the [`ercp_basic_macros::command`] macro, which
+    /// creates a wrapper around the command method to ensure the receiver state
+    /// is always reset. This is what is shown in the example below.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ercp_basic::{
+    ///     command, error::CommandError, Adapter, Command, DefaultRouter,
+    ///     ErcpBasic, Error,
+    /// };
+    ///
+    /// // It is always a good idea to represent the peer device as a struct,
+    /// // owning an ERCP Basic driver instance.
+    /// struct MyDevice<A: Adapter> {
+    ///     // Using ercp as the name for the ERCP Basic driver is a convention.
+    ///     // The #[command] attribute uses this fact, but you can still use
+    ///     // a different name if you want. In this case, you must use
+    ///     // #[command(self.field_name)] instead.
+    ///     ercp: ErcpBasic<A, DefaultRouter, 255>,
+    /// }
+    ///
+    /// const SOME_COMMAND: u8 = 0x42;
+    /// const SOME_COMMAND_REPLY: u8 = 0x43;
+    ///
+    /// impl<A: Adapter> MyDevice<A> {
+    ///     fn new(ercp: ErcpBasic<A, DefaultRouter, 255>) -> Self {
+    ///         Self { ercp }
+    ///     }
+    ///
+    ///     // This is a typical command method. Usage of the #[command]
+    ///     // attribute ensures the ERCP Basic receiver state is properly reset
+    ///     // after the method execution.
+    ///     #[command]
+    ///     fn some_command(&mut self, arg: u8) -> Result<u8, Error> {
+    ///         // 1. Prepare your command.
+    ///         let value = [arg];
+    ///         let command = Command::new(SOME_COMMAND, &value)?;
+    ///
+    ///         // 2. Send the command to the peer device and wait for its reply.
+    ///         let reply = self.ercp.command(command)?;
+    ///
+    ///         // 3. Check if the reply is correct and use its value.
+    ///         if reply.command() == SOME_COMMAND_REPLY && reply.length() == 1 {
+    ///             Ok(reply.value()[0])
+    ///         } else {
+    ///             Err(CommandError::UnexpectedReply.into())
+    ///         }
+    ///     }
+    /// }
+    /// ```
     pub fn command(&mut self, command: Command) -> Result<Command, Error> {
         self.connection.send(command)?;
         self.wait_for_command().map_err(Into::into)
     }
 
+    /// Sends a notification to the peer device.
+    ///
+    /// This sends the command to the peer device like [`ErcpBasic::command`],
+    /// but do not wait for a reply. There is no guarantee that the command has
+    /// been received.
     pub fn notify(&mut self, command: Command) -> Result<(), Error> {
         self.connection.send(command)?;
         Ok(())
     }
 
+    /// Pings the peer device.
+    ///
+    /// This sends a
+    /// [`Ping()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ping),
+    /// then blocks until the peer device replies. The result is `Ok(())` when
+    /// the reply is an
+    /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     #[command(self)]
     pub fn ping(&mut self) -> Result<(), Error> {
         let reply = self.command(ping!())?;
@@ -188,6 +351,15 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Resets the peer device.
+    ///
+    /// This sends a
+    /// [`Reset()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#reset),
+    /// then blocks until the peer device replies. The result is `Ok(())` when
+    /// the reply is an
+    /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
+    /// If the peer device does not support resets, this returns a
+    /// [`CommandError::UnhandledCommand`].
     #[command(self)]
     pub fn reset(&mut self) -> Result<(), Error> {
         let reply = self.command(reset!())?;
@@ -206,6 +378,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Gets the protocol version supported by the peer device.
+    ///
+    /// This sends a
+    /// [`Protocol()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol),
+    /// then blocks until the peer device replies. The result is `Ok(version)`
+    /// when the reply is a [`Protocol_Reply(major, minor,
+    /// patch)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol_replymajor-minor-patch).
     #[command(self)]
     pub fn protocol(&mut self) -> Result<Version, Error> {
         let reply = self.command(protocol!())?;
@@ -223,6 +402,19 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Gets the version of the given `component` in the peer device.
+    ///
+    /// This sends a
+    /// [`Version(component)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#versioncomponent),
+    /// then blocks until the peer device replies. The result is `Ok(size)` when
+    /// the reply is a
+    /// [`Version_Reply(version)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#version_replyversion).
+    /// In this case, `version[0..size]` contains the version string, encoded in
+    /// UTF-8. If the provided buffer is too short to hold the version string, a
+    /// [`BufferError::TooShort`] is returned.
+    ///
+    /// Standard commponents from the ERCP Basic specification are defined in
+    /// [`command::component`].
     #[command(self)]
     pub fn version(
         &mut self,
@@ -243,6 +435,12 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Gets the version of the given `component` in the peer device, returning
+    /// the result as a [`String`].
+    ///
+    /// This is the same as [`ErcpBasic::version`], but returning an owned
+    /// [`String`] instead of writing to a provided buffer. This function is
+    /// only available with the `std` feature is enabled.
     #[cfg(any(feature = "std", test))]
     #[command(self)]
     pub fn version_as_string(
@@ -259,6 +457,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Gets the maximum length accepted by the peer device.
+    ///
+    /// This sends a
+    /// [`Max_Length()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length),
+    /// then blocks until the peer device replies. The result is
+    /// `Ok(max_length)` when the reply is a
+    /// [`Max_Length_Reply(max_length)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length_replymax_length).
     #[command(self)]
     pub fn max_length(&mut self) -> Result<u8, Error> {
         let reply = self.command(max_length!())?;
@@ -270,6 +475,16 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Gets the description of the peer device.
+    ///
+    /// This sends a
+    /// [`Description()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#description),
+    /// then blocks until the peer device replies. The result is `Ok(size)` when
+    /// the reply is a
+    /// [`Description_Reply(description)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#description_replydescription).
+    /// In this case, `description[0..size]` contains the description, encoded
+    /// in UTF-8. If the provided buffer is too short to hold the description, a
+    /// [`BufferError::TooShort`] is returned.
     #[command(self)]
     pub fn description(
         &mut self,
@@ -291,6 +506,12 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Gets the description of the peer device, returning the result as a
+    /// [`String`].
+    ///
+    /// This is the same as [`ErcpBasic::description`], but returning an owned
+    /// [`String`] instead of writing to a provided buffer. This function is
+    /// only available with the `std` feature is enabled.
     #[cfg(any(feature = "std", test))]
     #[command(self)]
     pub fn description_as_string(&mut self) -> Result<String, Error> {
@@ -304,11 +525,24 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    /// Sends a log message to the peer device.
+    ///
+    /// This sends a
+    /// [`Log(message)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#logmessage)
+    /// without waiting for an acknowledgement. There is no guarantee that any
+    /// peer device receives the log.
     pub fn log(&mut self, message: &str) -> Result<(), Error> {
         let command = Command::log(message)?;
         self.notify(command)
     }
 
+    /// Sends a log message to the peer device and waits for an acknlowledgement.
+    ///
+    /// This sends a
+    /// [`Log(message)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#logmessage),
+    /// then blocks until the peer device replies. The result is `Ok(())` when
+    /// the reply is an
+    /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     #[command(self)]
     pub fn sync_log(&mut self, message: &str) -> Result<(), Error> {
         let command = Command::log(message)?;
@@ -319,6 +553,14 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         } else {
             Err(CommandError::UnexpectedReply.into())
         }
+    }
+
+    // TODO: Call this after handling the reply of a command, or to implement a
+    // receive timeout.
+    /// Resets the receive state machine and clears the frame buffer.
+    pub fn reset_state(&mut self) {
+        self.state = State::Ready;
+        self.rx_frame.reset();
     }
 
     // TODO: Return a status.
@@ -394,11 +636,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
                 // Ignore unexpected data.
             }
         }
-    }
-
-    pub fn reset_state(&mut self) {
-        self.state = State::Ready;
-        self.rx_frame.reset();
     }
 }
 
