@@ -240,7 +240,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// [`ErcpBasic::process`] directly which can be used to integrate ERCP
     /// Basic in a very simple event loop:
     ///
-    /// ```
+    /// ```no_run
     /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, error::IoError};
     /// #
     /// # struct DummyAdapter;
