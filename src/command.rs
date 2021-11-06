@@ -1,5 +1,10 @@
 // TODO: Avoid as u8 since it can be dangerous
 //! ERCP Basic command type and values.
+//!
+//! Commands are a core concept of ERCP Basic: this is what a device sends,
+//! receives and processes. Some commands come built-in, but you can complement
+//! them by your own values, provided that they are not in the `0x00..0x1F`
+//! range, which is reserved by the specification.
 
 use crate::crc::crc;
 use crate::error::FrameError;
@@ -43,7 +48,7 @@ pub const LOG: u8 = 0xFF;
 ///
 /// Constants in this modules are the values required by the specification. You
 /// can complement them by your own values, provided that they are not in the
-/// `0x05..0x0F` range, which is reserved for future use.
+/// `0x00..0x0F` range, which is reserved by the specification.
 pub mod nack_reason {
     /// No specified reason.
     pub const NO_REASON: u8 = 0x00;
@@ -61,7 +66,7 @@ pub mod nack_reason {
 ///
 /// Constants in this modules are the values required by the specification. You
 /// can complement them by your own values, provided that they are not in the
-/// `0x02..0x0F` range, which is reserved for future use.
+/// `0x00..0x0F` range, which is reserved by the specification.
 pub mod component {
     /// The firmware itself.
     pub const FIRMWARE: u8 = 0x00;
