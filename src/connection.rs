@@ -1,5 +1,9 @@
-// TODO: Better documentation.
-//! ERCP Connection.
+//! ERCP Basic connection.
+//!
+//! *This is an internal module.*
+//!
+//! The connection is an abstraction over the link layer under ERCP Basic. This
+//! is where bytes are sent and received, using an [`Adapter`].
 
 use crate::adapter::Adapter;
 use crate::command::Command;
@@ -13,22 +17,27 @@ pub(crate) struct Connection<A: Adapter> {
 }
 
 impl<A: Adapter> Connection<A> {
+    /// Creates a new connection.
     pub fn new(adapter: A) -> Self {
         Self { adapter }
     }
 
+    /// Releases the `adapter`.
     pub fn release(self) -> A {
         self.adapter
     }
 
+    /// Reads a byte from the connection.
     pub fn read(&mut self) -> Result<Option<u8>, IoError> {
         self.adapter.read()
     }
 
+    /// Writes a byte to the connection.
     pub fn write(&mut self, byte: u8) -> Result<(), IoError> {
         self.adapter.write(byte)
     }
 
+    /// Sends a command on the connection.
     pub fn send(&mut self, command: Command) -> Result<(), IoError> {
         for byte in [b'E', b'R', b'C', b'P', b'B'] {
             self.write(byte)?;
