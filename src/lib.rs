@@ -7,12 +7,12 @@
 pub mod adapter;
 pub mod command;
 pub mod error;
+pub mod router;
 pub mod version;
 
 mod connection;
 mod crc;
 mod frame_buffer;
-mod router;
 
 pub use ercp_basic_macros::command;
 
