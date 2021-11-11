@@ -1166,54 +1166,6 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn wait_for_command_returns_the_received_command(
-            mut ercp in ercp(State::Complete),
-        ) {
-            let received = ercp.rx_frame.check_frame().unwrap();
-            let value = received.value().to_owned();
-            let command =
-                Command::new(received.command(), &value).unwrap();
-
-            assert_eq!(ercp.wait_for_command(), Ok(command));
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn wait_for_command_returns_an_error_if_the_received_frame_is_corrupted(
-            mut ercp in ercp(State::Complete),
-            bad_crc in 0..=u8::MAX,
-        ) {
-            prop_assume!(
-                bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
-            );
-
-            ercp.rx_frame.set_crc(bad_crc);
-            assert_eq!(ercp.wait_for_command(), Err(FrameError::InvalidCrc));
-        }
-    }
-
-    // TODO: Enable when the design makes it possible.
-    // proptest! {
-    //     #[test]
-    //     fn wait_for_command_resets_state_if_the_received_frame_is_corrupted(
-    //         mut ercp in ercp(State::Complete),
-    //         bad_crc in 0..=u8::MAX,
-    //     ) {
-    //         prop_assume!(
-    //             bad_crc != crc(ercp.rx_frame.command(), ercp.rx_frame.value())
-    //         );
-
-    //         ercp.rx_frame.set_crc(bad_crc);
-
-    //         let _ = ercp.wait_for_command();
-    //         assert_eq!(ercp.state, State::Ready);
-    //         assert_eq!(ercp.rx_frame, FrameBuffer::default());
-    //     }
-    // }
-
     // proptest! {
     //     #[test]
     //     fn wait_for_command_waits_until_a_frame_has_been_received(
