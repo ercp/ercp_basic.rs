@@ -3,6 +3,7 @@ use probe_rs_rtt::{DownChannel, UpChannel};
 use super::Adapter;
 use crate::error::IoError;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "rtt-probe-rs")))]
 pub struct RttProbeRsAdapter {
     down_channel: DownChannel,
     up_channel: UpChannel,

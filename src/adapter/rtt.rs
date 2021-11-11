@@ -3,6 +3,7 @@ use rtt_target::{DownChannel, UpChannel};
 use super::Adapter;
 use crate::error::IoError;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "rtt")))]
 pub struct RttAdapter {
     down_channel: DownChannel,
     up_channel: UpChannel,

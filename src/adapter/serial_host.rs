@@ -5,6 +5,7 @@ use serialport::SerialPort;
 use crate::adapter::Adapter;
 use crate::error::IoError;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "serial-host")))]
 pub struct SerialPortAdapter {
     port: Box<dyn SerialPort>,
 }

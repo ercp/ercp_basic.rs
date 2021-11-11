@@ -6,6 +6,7 @@ use nb::block;
 use super::Adapter;
 use crate::error::IoError;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "serial")))]
 pub struct SerialAdapter<S: Read<u8> + Write<u8>> {
     serial: S,
 }
