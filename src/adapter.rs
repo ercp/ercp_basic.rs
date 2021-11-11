@@ -25,8 +25,8 @@ use crate::error::IoError;
 /// An adapter is the piece of software that makes the link between the ERCP
 /// Basic driver and the actual communication medium.
 ///
-/// You can find several built-in adapters in the [`adapter`](`crate::adapter`)
-/// module, and you can write your own by implementing the [`Adapter`] trait.
+/// You can find several built-in adapters in the [`adapter`](`self`) module,
+/// and you can write your own by implementing the [`Adapter`] trait.
 pub trait Adapter {
     // IDEA: Replace IoError with an implementation-defined type.
 
