@@ -1,4 +1,4 @@
-//! ERCP Basic connection adapters.
+//! Connection adapters.
 
 #[cfg(feature = "rtt")]
 mod rtt;
@@ -20,7 +20,7 @@ pub use serial_host::SerialPortAdapter;
 
 use crate::error::IoError;
 
-/// An ERCP Basic connection adapter.
+/// A connection adapter.
 ///
 /// An adapter is the piece of software that makes the link between the ERCP
 /// Basic driver and the actual communication medium.
