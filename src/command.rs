@@ -9,7 +9,21 @@ use crate::error::FrameError;
 /// Commands are a core concept of ERCP Basic: this is what a device sends,
 /// receives and processes. Some commands come built-in, but you can complement
 /// them by your own values, provided that they are not in the `0x00..0x1F`
-/// range, which is reserved by the specification.
+/// range, nor `0xFF`, which are reserved by the specification.
+///
+/// # Built-in commands
+///
+/// The ERCP Basic specification comes with [built-in
+/// commands](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#built-in-commands).
+/// The opcodes for these commands are defined as constants in the
+/// [`command`](`self`) module.
+///
+/// Macros like [`ack!`] or [`nack!`] are provided to build the corresponding
+/// [`Command`] values.
+///
+/// # Defining application-specific commands
+///
+/// *TODO: Value, wrapper and handler.*
 #[derive(Debug, PartialEq)]
 pub struct Command<'a> {
     command: u8,
