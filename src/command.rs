@@ -43,8 +43,7 @@ pub const DESCRIPTION_REPLY: u8 = 0x11;
 /// Logs a message ([reference](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#logmessage)).
 pub const LOG: u8 = 0xFF;
 
-/// Reasons for the [`Nack(reason)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#nackreason)
-/// command.
+/// Reasons for the [`Nack(reason)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#nackreason) command.
 ///
 /// Constants in this modules are the values required by the specification. You
 /// can complement them by your own values, provided that they are not in the
@@ -328,6 +327,19 @@ impl<'a> Command<'a> {
     }
 }
 
+/// Builds a [`Ping()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ping) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{Command, PING},
+///     ping,
+/// };
+///
+/// let ping = ping!();
+/// assert_eq!(ping, Command::new(PING, &[]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! ping {
     () => {
@@ -335,6 +347,19 @@ macro_rules! ping {
     };
 }
 
+/// Builds an [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     ack,
+///     command::{Command, ACK},
+/// };
+///
+/// let ack = ack!();
+/// assert_eq!(ack, Command::new(ACK, &[]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! ack {
     () => {
@@ -342,6 +367,19 @@ macro_rules! ack {
     };
 }
 
+/// Builds a [`Nack(reason)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#nackreason) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{nack_reason, Command, NACK},
+///     nack,
+/// };
+///
+/// let nack = nack!(nack_reason::NO_REASON);
+/// assert_eq!(nack, Command::new(NACK, &[nack_reason::NO_REASON]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! nack {
     ($reason:expr) => {
@@ -350,6 +388,19 @@ macro_rules! nack {
     };
 }
 
+/// Builds a [`Reset()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#reset) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{Command, RESET},
+///     reset,
+/// };
+///
+/// let reset = reset!();
+/// assert_eq!(reset, Command::new(RESET, &[]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! reset {
     () => {
@@ -357,6 +408,19 @@ macro_rules! reset {
     };
 }
 
+/// Builds a [`Protocol()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{Command, PROTOCOL},
+///     protocol,
+/// };
+///
+/// let protocol = protocol!();
+/// assert_eq!(protocol, Command::new(PROTOCOL, &[]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! protocol {
     () => {
@@ -364,6 +428,20 @@ macro_rules! protocol {
     };
 }
 
+/// Builds a [`Protocol_Reply(major, minor, patch)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol_replymajor-minor-patch) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{Command, PROTOCOL_REPLY},
+///     protocol_reply,
+///     version::Version,
+/// };
+///
+/// let protocol_reply = protocol_reply!(Version { major: 0, minor: 1, patch: 0 });
+/// assert_eq!(protocol_reply, Command::new(PROTOCOL_REPLY, &[0, 1, 0]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! protocol_reply {
     ($version:expr) => {
@@ -375,6 +453,19 @@ macro_rules! protocol_reply {
     };
 }
 
+/// Builds a [`Version(component)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#versioncomponent) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{component, Command, VERSION},
+///     version,
+/// };
+///
+/// let version = version!(component::FIRMWARE);
+/// assert_eq!(version, Command::new(VERSION, &[component::FIRMWARE]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! version {
     ($component:expr) => {
@@ -383,6 +474,19 @@ macro_rules! version {
     };
 }
 
+/// Builds a [`Version_Reply(version)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#version_replyversion) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{component, Command, VERSION_REPLY},
+///     version_reply,
+/// };
+///
+/// let version_reply = version_reply!("0.1.0");
+/// assert_eq!(version_reply, Command::new(VERSION_REPLY, "0.1.0".as_bytes()).unwrap());
+/// ```
 #[macro_export]
 macro_rules! version_reply {
     ($version:expr) => {
@@ -390,6 +494,19 @@ macro_rules! version_reply {
     };
 }
 
+/// Builds a [`Max_Length()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{component, Command, MAX_LENGTH},
+///     max_length,
+/// };
+///
+/// let max_length = max_length!();
+/// assert_eq!(max_length, Command::new(MAX_LENGTH, &[]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! max_length {
     () => {
@@ -397,6 +514,19 @@ macro_rules! max_length {
     };
 }
 
+/// Builds a [`Max_Length_Reply(max_length)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length_replymax_length) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{component, Command, MAX_LENGTH_REPLY},
+///     max_length_reply,
+/// };
+///
+/// let max_length_reply = max_length_reply!(50);
+/// assert_eq!(max_length_reply, Command::new(MAX_LENGTH_REPLY, &[50]).unwrap());
+/// ```
 #[macro_export]
 macro_rules! max_length_reply {
     ($max_length:expr) => {
@@ -408,6 +538,18 @@ macro_rules! max_length_reply {
     };
 }
 
+/// Builds a [`Description()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#description) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{component, Command, DESCRIPTION},
+///     description,
+/// };
+///
+/// let description = description!();
+/// assert_eq!(description, Command::new(DESCRIPTION, &[]).unwrap());
 #[macro_export]
 macro_rules! description {
     () => {
@@ -415,6 +557,22 @@ macro_rules! description {
     };
 }
 
+/// Builds a [`Description_Reply(description)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#description_replydescription) command.
+///
+/// # Example
+///
+/// ```
+/// use ercp_basic::{
+///     command::{component, Command, DESCRIPTION_REPLY},
+///     description_reply,
+/// };
+///
+/// let description_reply = description_reply!("Example description");
+/// assert_eq!(
+///     description_reply,
+///     Command::new(DESCRIPTION_REPLY, "Example description".as_bytes()).unwrap()
+/// );
+/// ```
 #[macro_export]
 macro_rules! description_reply {
     ($description:expr) => {
