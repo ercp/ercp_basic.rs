@@ -20,7 +20,7 @@ pub use serial_host::SerialPortAdapter;
 
 use crate::error::IoError;
 
-/// An ERCP connection adapter.
+/// An ERCP Basic connection adapter.
 ///
 /// An adapter is the piece of software that makes the link between the ERCP
 /// Basic driver and the actual communication medium.
