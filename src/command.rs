@@ -102,7 +102,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, PING};
+    /// use ercp_basic::command::{Command, PING};
+    ///
     /// assert_eq!(
     ///     Command::ping(),
     ///     Command::new(PING, &[]).unwrap()
@@ -120,7 +121,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, ACK};
+    /// use ercp_basic::command::{Command, ACK};
+    ///
     /// assert_eq!(
     ///     Command::ack(),
     ///     Command::new(ACK, &[]).unwrap()
@@ -138,7 +140,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, RESET};
+    /// use ercp_basic::command::{Command, RESET};
+    ///
     /// assert_eq!(
     ///     Command::reset(),
     ///     Command::new(RESET, &[]).unwrap()
@@ -156,7 +159,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, PROTOCOL};
+    /// use ercp_basic::command::{Command, PROTOCOL};
+    ///
     /// assert_eq!(
     ///     Command::protocol(),
     ///     Command::new(PROTOCOL, &[]).unwrap()
@@ -174,7 +178,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, VERSION_REPLY};
+    /// use ercp_basic::command::{Command, VERSION_REPLY};
+    ///
     /// assert_eq!(
     ///     Command::version_reply("0.1.0"),
     ///     Command::new(VERSION_REPLY, "0.1.0".as_bytes())
@@ -189,7 +194,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, MAX_LENGTH};
+    /// use ercp_basic::command::{Command, MAX_LENGTH};
+    ///
     /// assert_eq!(
     ///     Command::max_length(),
     ///     Command::new(MAX_LENGTH, &[]).unwrap()
@@ -207,7 +213,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, DESCRIPTION};
+    /// use ercp_basic::command::{Command, DESCRIPTION};
+    ///
     /// assert_eq!(
     ///     Command::description(),
     ///     Command::new(DESCRIPTION, &[]).unwrap()
@@ -225,7 +232,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, DESCRIPTION_REPLY};
+    /// use ercp_basic::command::{Command, DESCRIPTION_REPLY};
+    ///
     /// assert_eq!(
     ///     Command::description_reply("Example description"),
     ///     Command::new(DESCRIPTION_REPLY, "Example description".as_bytes())
@@ -240,7 +248,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, LOG};
+    /// use ercp_basic::command::{Command, LOG};
+    ///
     /// assert_eq!(
     ///     Command::log("Some message"),
     ///     Command::new(LOG, "Some message".as_bytes())
@@ -255,7 +264,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::{Command, DESCRIPTION_REPLY};
+    /// use ercp_basic::command::{Command, DESCRIPTION_REPLY};
+    ///
     /// let reply = Command::description_reply("Description").unwrap();
     /// assert_eq!(reply.command(), DESCRIPTION_REPLY);
     /// ```
@@ -268,7 +278,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::Command;
+    /// use ercp_basic::command::Command;
+    ///
     /// let reply = Command::description_reply("Description").unwrap();
     /// assert_eq!(reply.length(), 11);
     /// ```
@@ -281,7 +292,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::Command;
+    /// use ercp_basic::command::Command;
+    ///
     /// let reply = Command::description_reply("Description").unwrap();
     /// assert_eq!(reply.value(), "Description".as_bytes());
     /// ```
@@ -294,7 +306,8 @@ impl<'a> Command<'a> {
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::command::Command;
+    /// use ercp_basic::command::Command;
+    ///
     /// let reply = Command::description_reply("Description").unwrap();
     /// assert_eq!(reply.crc(), 0xE2);
     /// ```
