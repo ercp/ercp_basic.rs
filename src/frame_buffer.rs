@@ -8,7 +8,7 @@ use crate::error::FrameError;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct FrameBuffer<const MAX_LEN: usize> {
-    command: u8,
+    code: u8,
     length: u8,
     value: Vec<u8, MAX_LEN>,
     crc: u8,
@@ -23,8 +23,8 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
         *self = Self::default();
     }
 
-    pub fn command(&self) -> u8 {
-        self.command
+    pub fn code(&self) -> u8 {
+        self.code
     }
 
     #[cfg(test)]
@@ -40,8 +40,8 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
         self.crc
     }
 
-    pub fn set_command(&mut self, command: u8) {
-        self.command = command;
+    pub fn set_code(&mut self, code: u8) {
+        self.code = code;
     }
 
     pub fn set_length(&mut self, length: u8) -> Result<(), FrameError> {
@@ -74,7 +74,7 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     }
 
     pub fn check_frame(&self) -> Result<Command, FrameError> {
-        let command = Command::new(self.command(), self.value())?;
+        let command = Command::new(self.code(), self.value())?;
 
         if self.crc() == command.crc() {
             Ok(command)
@@ -95,11 +95,11 @@ mod test {
 
     fn frame_buffer() -> impl Strategy<Value = FrameBuffer<255>> {
         (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
-            |(command, value)| FrameBuffer {
-                command,
+            |(code, value)| FrameBuffer {
+                code: code,
                 length: value.len() as u8,
                 value: Vec::from_slice(&value).unwrap(),
-                crc: crc(command, &value),
+                crc: crc(code, &value),
             },
         )
     }
@@ -110,7 +110,7 @@ mod test {
     fn new_returns_an_empty_frame_buffer() {
         let frame_buffer = FrameBuffer::<255>::new();
         let expected = FrameBuffer {
-            command: 0x00,
+            code: 0x00,
             length: 0x00,
             value: Vec::new(),
             crc: 0x00,
@@ -124,14 +124,14 @@ mod test {
     #[test]
     fn reset_resets_to_an_empty_frame_buffer() {
         let mut frame_buffer = FrameBuffer::<255> {
-            command: 0xAA,
+            code: 0xAA,
             length: 0x55,
             value: Vec::from_slice(&[0xAA; 0x55]).unwrap(),
             crc: 0xAA,
         };
 
         let expected = FrameBuffer::<255> {
-            command: 0x00,
+            code: 0x00,
             length: 0x00,
             value: Vec::new(),
             crc: 0x00,
@@ -145,8 +145,8 @@ mod test {
 
     proptest! {
         #[test]
-        fn command_returns_the_command(frame_buffer in frame_buffer()) {
-            assert_eq!(frame_buffer.command(), frame_buffer.command);
+        fn code_returns_the_code(frame_buffer in frame_buffer()) {
+            assert_eq!(frame_buffer.code(), frame_buffer.code);
         }
     }
 
@@ -178,11 +178,11 @@ mod test {
 
     proptest! {
         #[test]
-        fn set_command_sets_the_command(command in 0..=u8::MAX) {
+        fn set_code_sets_the_code(code in 0..=u8::MAX) {
             let mut frame_buffer = FrameBuffer::<255>::new();
 
-            frame_buffer.set_command(command);
-            assert_eq!(frame_buffer.command, command);
+            frame_buffer.set_code(code);
+            assert_eq!(frame_buffer.code, code);
         }
     }
 
@@ -307,7 +307,7 @@ mod test {
             frame_buffer in frame_buffer()
         ) {
             let command =
-                Command::new(frame_buffer.command(), frame_buffer.value())
+                Command::new(frame_buffer.code(), frame_buffer.value())
                     .unwrap();
 
             assert_eq!(frame_buffer.check_frame(), Ok(command));
@@ -321,7 +321,7 @@ mod test {
             bad_crc in 0..=u8::MAX
         ) {
             prop_assume!(
-                bad_crc != crc(frame_buffer.command(), frame_buffer.value())
+                bad_crc != crc(frame_buffer.code(), frame_buffer.value())
             );
 
             frame_buffer.set_crc(bad_crc);

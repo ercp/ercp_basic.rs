@@ -43,7 +43,7 @@ impl<A: Adapter> Connection<A> {
             self.write(byte)?;
         }
 
-        self.write(command.command())?;
+        self.write(command.code())?;
         self.write(command.length())?;
 
         for &byte in command.value() {
@@ -173,11 +173,11 @@ pub(crate) mod tests {
     proptest! {
         #[test]
         fn send_writes_a_frame_on_the_connection(
-            command in 0..=u8::MAX,
+            code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             setup(|mut connection| {
-                let command = Command::new(command, &value).unwrap();
+                let command = Command::new(code, &value).unwrap();
                 let expected_frame = command.as_frame();
 
                 assert_eq!(connection.send(command), Ok(()));
@@ -189,11 +189,11 @@ pub(crate) mod tests {
     proptest! {
         #[test]
         fn send_returns_an_error_if_there_is_one(
-            command in 0..=u8::MAX,
+            code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             setup(|mut connection| {
-                let command = Command::new(command, &value).unwrap();
+                let command = Command::new(code, &value).unwrap();
                 connection.adapter.write_error = Some(IoError::IoError);
 
                 assert_eq!(connection.send(command), Err(IoError::IoError));

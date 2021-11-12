@@ -15,7 +15,7 @@ use crate::error::FrameError;
 ///
 /// The ERCP Basic specification comes with [built-in
 /// commands](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#built-in-commands).
-/// The opcodes for these commands are defined as constants in the
+/// The codes for these commands are defined as constants in the
 /// [`command`](`self`) module.
 ///
 /// Macros like [`ack!`] or [`nack!`] are provided to build the corresponding
@@ -26,7 +26,7 @@ use crate::error::FrameError;
 /// *TODO: Value, wrapper and handler.*
 #[derive(Debug, PartialEq)]
 pub struct Command<'a> {
-    command: u8,
+    code: u8,
     value: &'a [u8],
 }
 
@@ -102,9 +102,9 @@ impl<'a> Command<'a> {
     /// let result = Command::new(NACK, &[nack_reason::NO_REASON]);
     /// assert!(result.is_ok());
     /// ```
-    pub fn new(command: u8, value: &'a [u8]) -> Result<Self, FrameError> {
+    pub fn new(code: u8, value: &'a [u8]) -> Result<Self, FrameError> {
         if value.len() <= u8::MAX.into() {
-            Ok(Self { command, value })
+            Ok(Self { code, value })
         } else {
             Err(FrameError::TooLong)
         }
@@ -124,7 +124,7 @@ impl<'a> Command<'a> {
     /// ```
     pub fn ping() -> Self {
         Self {
-            command: PING,
+            code: PING,
             value: &[],
         }
     }
@@ -143,7 +143,7 @@ impl<'a> Command<'a> {
     /// ```
     pub fn ack() -> Self {
         Self {
-            command: ACK,
+            code: ACK,
             value: &[],
         }
     }
@@ -162,7 +162,7 @@ impl<'a> Command<'a> {
     /// ```
     pub fn reset() -> Self {
         Self {
-            command: RESET,
+            code: RESET,
             value: &[],
         }
     }
@@ -181,7 +181,7 @@ impl<'a> Command<'a> {
     /// ```
     pub fn protocol() -> Self {
         Self {
-            command: PROTOCOL,
+            code: PROTOCOL,
             value: &[],
         }
     }
@@ -216,7 +216,7 @@ impl<'a> Command<'a> {
     /// ```
     pub fn max_length() -> Self {
         Self {
-            command: MAX_LENGTH,
+            code: MAX_LENGTH,
             value: &[],
         }
     }
@@ -235,7 +235,7 @@ impl<'a> Command<'a> {
     /// ```
     pub fn description() -> Self {
         Self {
-            command: DESCRIPTION,
+            code: DESCRIPTION,
             value: &[],
         }
     }
@@ -272,7 +272,7 @@ impl<'a> Command<'a> {
         Self::new(LOG, message.as_bytes())
     }
 
-    /// Returns the opcode of the command.
+    /// Returns the code of the command.
     ///
     /// # Example
     ///
@@ -280,10 +280,10 @@ impl<'a> Command<'a> {
     /// use ercp_basic::command::{Command, DESCRIPTION_REPLY};
     ///
     /// let reply = Command::description_reply("Description").unwrap();
-    /// assert_eq!(reply.command(), DESCRIPTION_REPLY);
+    /// assert_eq!(reply.code(), DESCRIPTION_REPLY);
     /// ```
-    pub fn command(&self) -> u8 {
-        self.command
+    pub fn code(&self) -> u8 {
+        self.code
     }
 
     /// Returns the length of the value.
@@ -325,13 +325,13 @@ impl<'a> Command<'a> {
     /// assert_eq!(reply.crc(), 0xE2);
     /// ```
     pub fn crc(&self) -> u8 {
-        crc(self.command, self.value)
+        crc(self.code, self.value)
     }
 
     #[cfg(test)]
     pub(crate) fn as_frame(&self) -> Vec<u8> {
         let mut frame = vec![b'E', b'R', b'C', b'P', b'B'];
-        frame.push(self.command());
+        frame.push(self.code());
         frame.push(self.length());
         frame.extend(self.value());
         frame.push(self.crc());
@@ -605,25 +605,25 @@ mod test {
     proptest! {
         #[test]
         fn new_returns_a_command(
-            command in 0..=u8::MAX,
+            code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
         ) {
             let expected = Command {
-                command,
+                code,
                 value: &value,
             };
 
-            assert_eq!(Command::new(command, &value), Ok(expected));
+            assert_eq!(Command::new(code, &value), Ok(expected));
         }
     }
 
     proptest! {
         #[test]
         fn new_returns_an_error_if_value_is_too_long(
-            command in 0..=u8::MAX,
+            code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, (u8::MAX as usize + 1)..1000)
         ) {
-            assert_eq!(Command::new(command, &value), Err(FrameError::TooLong))
+            assert_eq!(Command::new(code, &value), Err(FrameError::TooLong))
         }
     }
 
@@ -631,13 +631,13 @@ mod test {
 
     proptest! {
         #[test]
-        fn command_returns_the_command(command in 0..=u8::MAX) {
+        fn code_returns_the_code(code in 0..=u8::MAX) {
             let command = Command {
-                command,
+                code,
                 value: &[],
             };
 
-            assert_eq!(command.command(), command.command);
+            assert_eq!(command.code(), command.code);
         }
     }
 
@@ -647,7 +647,7 @@ mod test {
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             let command = Command {
-                command: 0x00,
+                code: 0x00,
                 value: &value,
             };
 
@@ -661,7 +661,7 @@ mod test {
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             let command = Command {
-                command: 0x00,
+                code: 0x00,
                 value: &value,
             };
 
@@ -672,15 +672,15 @@ mod test {
     proptest! {
         #[test]
         fn crc_returns_the_crc(
-            command in 0..=u8::MAX,
+            code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
-            let cmd = Command {
-                command,
+            let command = Command {
+                code,
                 value: &value,
             };
 
-            assert_eq!(cmd.crc(), crc(command, &value));
+            assert_eq!(command.crc(), crc(code, &value));
         }
     }
 }

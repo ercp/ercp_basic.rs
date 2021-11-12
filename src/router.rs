@@ -20,7 +20,7 @@ pub trait Router<const MAX_LEN: usize> {
     }
 
     fn default_routes(&mut self, command: Command) -> Option<Command> {
-        match command.command() {
+        match command.code() {
             PING => self.handle_ping(command),
             ACK => self.handle_ack(command),
             NACK => self.handle_nack(command),
@@ -255,24 +255,24 @@ mod tests {
     proptest! {
         #[test]
         fn to_any_other_command_replies_a_nack_unknown_command(
-            command in 0..=u8::MAX,
+            code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             prop_assume!(
-                command != PING
-                && command != ACK
-                && command != NACK
-                && command != PROTOCOL
-                && command != VERSION
-                && command != MAX_LENGTH
-                && command != DESCRIPTION
-                && command != LOG
+                code != PING
+                && code != ACK
+                && code != NACK
+                && code != PROTOCOL
+                && code != VERSION
+                && code != MAX_LENGTH
+                && code != DESCRIPTION
+                && code != LOG
             );
 
             let mut router: Box<dyn Router<255, Context = _>> =
                 Box::new(DefaultRouter);
 
-            let command = Command::new(command, &value).unwrap();
+            let command = Command::new(code, &value).unwrap();
 
             assert_eq!(
                 router.route(command, &mut ()),
