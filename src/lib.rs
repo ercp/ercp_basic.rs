@@ -138,7 +138,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// #
     /// # impl SomeAdapter { fn new() -> Self { SomeAdapter } }
     /// #
-    /// # impl ercp_basic::Adapter for SomeAdapter {
+    /// # impl Adapter for SomeAdapter {
     /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
     /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
     /// # }
@@ -201,7 +201,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// #
     /// # struct DummyAdapter;
     /// #
-    /// # impl ercp_basic::Adapter for DummyAdapter {
+    /// # impl Adapter for DummyAdapter {
     /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
     /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
     /// # }
@@ -213,6 +213,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// You **must** call this function regularly somewhere in your code for
     /// ERCP Basic to work properly. It could be run for instance in a specific
     /// task or thread.
+    // TODO: Return a Result so the user can check for system errors.
     pub fn process(&mut self, context: &mut R::Context) {
         // TODO: Use next_command once it is in a sub-struct.
         if self.complete_frame_received() {
@@ -245,7 +246,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// #
     /// # struct DummyAdapter;
     /// #
-    /// # impl ercp_basic::Adapter for DummyAdapter {
+    /// # impl Adapter for DummyAdapter {
     /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
     /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
     /// # }
@@ -257,6 +258,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ///     // Optionally do some post-processing.
     /// }
     /// ```
+    // TODO: Return a Result so the user can check for system errors.
     pub fn accept_command(&mut self, context: &mut R::Context) {
         self.wait_for_command();
         self.process(context);
@@ -1268,6 +1270,8 @@ mod tests {
             assert_eq!(ercp.rx_frame, FrameBuffer::default());
         }
     }
+
+    // TODO: Test accept_command.
 
     ////////////////////////////// Data output /////////////////////////////
 
