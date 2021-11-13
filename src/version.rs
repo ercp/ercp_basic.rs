@@ -14,4 +14,4 @@ pub const PROTOCOL_VERSION: Version = Version {
 };
 
 pub const LIBRARY_VERSION: &str =
-    concat!("ercp_basic.rs ", env!("CARGO_PKG_VERSION"));
+    concat!(env!("CARGO_PKG_NAME"), ".rs ", env!("CARGO_PKG_VERSION"));
