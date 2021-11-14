@@ -1,5 +1,4 @@
-// TODO: Better documentation.
-//! ERCP Router and default implementation.
+//! Command router and default implementation.
 
 use crate::command::*;
 use crate::{
@@ -7,14 +6,354 @@ use crate::{
     version_reply,
 };
 
-/// An ERCP router.
+#[cfg(doc)]
+use crate::ErcpBasic;
+
+/// A command router.
+///
+/// The router is a central element in the command processing machinery: this is
+/// where incoming commands are dispatched to the correct handler, and where the
+/// handlers themselves are implemented. The entry point of a router is
+/// [`Router::route`], which is called internally by [`ErcpBasic::process`] or
+/// [`ErcpBasic::accept_command`]. This method takes as input the incoming
+/// command and a context. It matches on the command code to calls the
+/// appropriate handler, then returns an optional reply command.
+///
+/// A default implementation is provided for every method, so that you only need
+/// to implement what you want to override. The [`DefaultRouter`] is a concrete
+/// [`Router`] using the default implementations.
+///
+/// # Implementing a router
+///
+/// After ensuring your device works properly with the [`DefaultRouter`], you
+/// want typically to define your own, to change the device description or
+/// accept application-specific commands. The next subsections will guide you
+/// through standard use cases.
+///
+/// ## The minimal router implementation
+///
+/// Let’s start with the simplest router: [`DefaultRouter`] itself. It is
+/// defined as follows:
+///
+/// ```
+/// use ercp_basic::Router;
+///
+/// // An empty struct, as it does not need to store data.
+/// struct DefaultRouter;
+///
+/// impl<const MAX_LEN: usize> Router<MAX_LEN> for DefaultRouter {
+///     // It does not need a context, so let’s use unit.
+///     type Context = ();
+///
+///     // Nothing more to add since it uses all the default implementations.
+/// }
+/// ```
+///
+/// When writing your own router, you should start with something like this.
+///
+/// ## Setting the description and the firmware version
+///
+/// The
+/// [`Version(FIRMWARE)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#versioncomponent)
+/// and
+/// [`Description()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#description)
+/// commands get their respective values from [`Router::firmware_version`] and
+/// [`Router::description`]. Simply override these methods to set your own
+/// values:
+///
+/// ```
+/// use ercp_basic::Router;
+///
+/// struct ApplicationRouter;
+///
+/// impl<const MAX_LEN: usize> Router<MAX_LEN> for ApplicationRouter {
+///     type Context = ();
+///
+///     fn firmware_version(&self) -> &str {
+///         concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"))
+///     }
+///
+///     fn description(&self) -> &str {
+///         "Example object"
+///     }
+/// }
+/// ```
+///
+/// ## Handling an application-specific command
+///
+/// To handle an application-specific command, you need to:
+///
+/// * define a handler for your command,
+/// * add a route for this command, by overriding [`Router::route`].
+///
+/// ```
+/// use ercp_basic::{
+///     ack,
+///     command::{nack_reason, Command},
+///     nack, Router,
+/// };
+///
+/// struct ApplicationRouter;
+///
+/// const MY_COMMAND: u8 = 0x20;
+///
+/// impl Router<255> for ApplicationRouter {
+///     type Context = ();
+///
+///     // Override the route method.
+///     fn route(
+///         &mut self,
+///         command: Command,
+///         _ctx: &mut Self::Context,
+///     ) -> Option<Command> {
+///         // Match on the command code.
+///         match command.code() {
+///             // Dispatch application-specific commands to their handlers.
+///             MY_COMMAND => self.handle_my_command(command),
+///
+///             // Redirect all other commands to the default routes.
+///             // NOTE: It is important to always put this in your custom route
+///             // method, so the built-in commands are handled.
+///             _ => self.default_routes(command),
+///         }
+///     }
+/// }
+///
+/// impl ApplicationRouter {
+///     // Define a handler for the command.
+///     fn handle_my_command(&self, command: Command) -> Option<Command> {
+///         // Do whatever you want here.
+///         if command.length() == 1 && command.value()[0] == 0x42 {
+///             // Return some command as a reply. Typically, reply an Ack()
+///             // when the command is successful. If you do not want to reply,
+///             // simply return None.
+///             Some(ack!())
+///         } else {
+///             Some(nack!(nack_reason::NO_REASON))
+///         }
+///     }
+/// }
+/// ```
+///
+/// ## Working with external resources
+///
+/// In a real-life use-case, you could need to access an external resource from
+/// your command handlers. This can be achieved by using a context.
+///
+/// Both [`ErcpBasic::process`] and [`ErcpBasic::accept_command`] take a
+/// parameter of type [`Router::Context`], which they pass to [`Router::route`].
+/// By defining this type, you can control the resources that are available to
+/// your router. Let’s say for instance that you have a LED, which you can
+/// switch on. You could expose this feature via ERCP Basic like this:
+///
+/// ```no_run
+/// use ercp_basic::{ack, Command, ErcpBasic, Router};
+///
+/// struct ApplicationRouter;
+///
+/// # struct Led;
+/// # impl Led {
+/// #   fn init() -> Self { Led }
+/// #   fn on(&mut self) {}
+/// # }
+/// #
+/// // Define a type to gather the resources that are driveable though your
+/// // ERCP Basic instance.
+/// struct DriveableResources {
+///     led: Led,
+/// }
+///
+/// const LED_ON: u8 = 0x20;
+///
+/// impl Router<255> for ApplicationRouter {
+///     // Use the type defined above as the context for your router.
+///     type Context = DriveableResources;
+///
+///     fn route(
+///         &mut self,
+///         command: Command,
+///         // It will be passed to the route command, so you can use parts of
+///         // in in your handlers.
+///         ctx: &mut Self::Context,
+///     ) -> Option<Command> {
+///         match command.code() {
+///             // Pass the LED driver to the LED_ON command handler.
+///             LED_ON => self.handle_led_on(command, &mut ctx.led),
+///             _ => self.default_routes(command),
+///         }
+///     }
+/// }
+///
+/// impl ApplicationRouter {
+///     fn handle_led_on(&self, command: Command, led: &mut Led) -> Option<Command> {
+///         // You can then swith the LED on in your handler.
+///         led.on();
+///         Some(ack!())
+///     }
+/// }
+///
+/// fn main() {
+///     // Initialise your resources.
+///     let mut led = Led::init();
+///
+///     # use ercp_basic::{Adapter, error::IoError};
+///     #
+///     # struct SomeAdapter;
+///     #
+///     # impl SomeAdapter { fn new() -> Self { SomeAdapter } }
+///     #
+///     # impl Adapter for SomeAdapter {
+///     #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
+///     #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+///     # }
+///     #
+///     // Initialise the ERCP Basic driver with your router.
+///     let adapter = SomeAdapter::new();
+///     let mut ercp: ErcpBasic<_, _, 255> = ErcpBasic::new(adapter, ApplicationRouter);
+///
+///     // Gather your driveable resources.
+///     let mut resources = DriveableResources { led };
+///
+///     loop {
+///         // Pass the resources as the context to accept_command (or process).
+///         // It will be passed internally to the router.
+///         ercp.accept_command(&mut resources);
+///     }
+/// }
+/// ```
+///
+/// ## Returning some data
+///
+/// Some command handlers also need to return some data. To do so, you will need
+/// a buffer to build the value of the command, but doing so in your commaand
+/// handler directly would end in a temporary value being returned, which is
+/// illegal. You can instead define your buffer in the router itself, so every
+/// handler can use it. Imagine we want to build an echo command:
+///
+/// ```
+/// use ercp_basic::{ack, nack, Command, Router};
+///
+/// struct ApplicationRouter {
+///     // Add a buffer to your router. It should be as big as the maximum
+///     // length of the value you want to be able to build. Let’s say we can
+///     // echo up to 10 bytes.
+///     buffer: [u8; 10],
+/// }
+///
+/// // The ECHO command and its reply.
+/// const ECHO: u8 = 0x20;
+/// const ECHO_REPLY: u8 = 0x21;
+///
+/// // A custom reason for Nack replies, in case the value to echo would be
+/// // longer than 10 bytes.
+/// const VALUE_TOO_LONG: u8 = 0x10;
+///
+/// impl Router<255> for ApplicationRouter {
+///     type Context = ();
+///
+///     fn route(
+///         &mut self,
+///         command: Command,
+///         _ctx: &mut Self::Context,
+///     ) -> Option<Command> {
+///         match command.code() {
+///             ECHO => self.handle_echo(command),
+///             _ => self.default_routes(command),
+///         }
+///     }
+/// }
+///
+/// impl ApplicationRouter {
+///     fn handle_echo(&mut self, command: Command) -> Option<Command> {
+///         if command.value().len() <= self.buffer.len() {
+///             // We can now use self.buffer to build the value of our
+///             // ECHO_REPLY command, simply copying from the value of the ECHO
+///             // command.
+///             let value = &mut self.buffer[0..command.value().len()];
+///             value.copy_from_slice(command.value());
+///
+///             // NOTE(unwrap): value <= 10 < u8::MAX.
+///             let reply = Command::new(ECHO_REPLY, value).unwrap();
+///             Some(reply)
+///         } else {
+///             Some(nack!(VALUE_TOO_LONG))
+///         }
+///     }
+/// }
+/// ```
+///
+/// ## Overriding a built-in command
+///
+/// You should not need to override most build-in commands, but there can be a
+/// few exceptions. For instance, the default implementation of
+/// [`Router::handle_reset`] replies a
+/// [`Nack(UNKNOWN_COMMAND)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#nackreason),
+/// as its actual implementation is optional. To actually reset the device when
+/// this command is received, you can something like:
+///
+/// ```
+/// use ercp_basic::{ack, Command, Router};
+///
+/// struct ApplicationRouter;
+///
+/// impl<const MAX_LEN: usize> Router<MAX_LEN> for ApplicationRouter {
+///     type Context = ();
+///
+///     // Simply override the handle_reset method.
+///     fn handle_reset(&mut self, _command: Command) -> Option<Command> {
+///         # fn reset_device() {}
+///         reset_device();
+///         Some(ack!())
+///     }
+/// }
+/// ```
+///
+/// ## Adding the version of a component
+///
+/// The
+/// [`Version(component)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#versioncomponent)
+/// command can be used to get the version of an arbitrary component. The
+/// firmware version and the ERCP Basic library version are built-in components,
+/// but you can add the version of any component you would like. To do so, you
+/// should override [`Router::version`] and map the component number to a
+/// version string. For instance, let’s return the version of an imaginary
+/// component `my_extension`:
+///
+/// ```
+/// # mod my_extension { pub const VERSION: &str = ""; }
+/// use ercp_basic::{ack, Command, Router};
+///
+/// struct ApplicationRouter;
+///
+/// // Define a component number for your component.
+/// const MY_EXTENSION: u8 = 0x10;
+///
+/// impl Router<255> for ApplicationRouter {
+///     type Context = ();
+///
+///     // Override the version method.
+///     fn version(&self, component: u8) -> &str {
+///         match component {
+///             // Map the extension number to a version string (let’s say it
+///             // is provided directly by the my_extension crate).
+///             MY_EXTENSION => my_extension::VERSION,
+///
+///             // Handle the built-in components.
+///             // NOTE: It is important to always put this in your custom
+///             // version method, so that the versions for the built-in
+///             // components are still properly returned.
+///             _ => self.default_versions(component),
+///         }
+///     }
+/// }
+/// ```
 pub trait Router<const MAX_LEN: usize> {
     type Context;
 
     fn route(
         &mut self,
         command: Command,
-        _: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Option<Command> {
         self.default_routes(command)
     }
@@ -100,7 +439,7 @@ pub trait Router<const MAX_LEN: usize> {
     }
 }
 
-/// A concrete ERCP router using the default implementations.
+/// A concrete router using the default implementations.
 #[derive(Debug)]
 pub struct DefaultRouter;
 
