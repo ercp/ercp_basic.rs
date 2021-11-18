@@ -348,8 +348,63 @@ use crate::ErcpBasic;
 /// }
 /// ```
 pub trait Router<const MAX_LEN: usize> {
+    /// The context for the router.
+    ///
+    /// The [`Router::route`] methode takes a context as argument, which can be
+    /// used to make resources or data available to the command handlers. You
+    /// can use a struct gathering all needed resources, then dispatch them to
+    /// the command handlers.
+    ///
+    /// If you do not need a context, just use unit:
+    ///
+    /// ```
+    /// type Context = ();
+    /// ```
     type Context;
 
+    /// Routes the command to the proper handler.
+    ///
+    /// This method takes a command and a context as arguments. It routes the
+    /// command to the proper handler, optionally providing elements from the
+    /// context to it, then returns an optional command to be replied.
+    ///
+    /// The default implementation simply calls [`Router::default_routes`]. When
+    /// implementing your own router with application commands, you need to
+    /// override it to add your routes:
+    ///
+    /// ```
+    /// use ercp_basic::{Command, Router};
+    ///
+    /// struct ApplicationRouter;
+    ///
+    /// # const COMMAND_A: u8 = 0x20;
+    /// # const COMMAND_B: u8 = 0x21;
+    /// #
+    /// impl Router<255> for ApplicationRouter {
+    ///     type Context = ();
+    ///
+    ///     fn route(
+    ///         &mut self,
+    ///         command: Command,
+    ///         _ctx: &mut Self::Context,
+    ///     ) -> Option<Command> {
+    ///         // Match on the command code.
+    ///         match command.code() {
+    ///             // Dispatch application-specific commands to their handlers.
+    ///             COMMAND_A => self.handle_command_a(command),
+    ///             COMMAND_B => self.handle_command_b(command),
+    ///
+    ///            // Always call self.default_routes in the default path.
+    ///             _ => self.default_routes(command),
+    ///         }
+    ///     }
+    /// }
+    /// #
+    /// # impl ApplicationRouter {
+    /// #   fn handle_command_a(&self, _: Command) -> Option<Command> { None }
+    /// #   fn handle_command_b(&self, _: Command) -> Option<Command> { None }
+    /// # }
+    /// ```
     fn route(
         &mut self,
         command: Command,
@@ -358,6 +413,11 @@ pub trait Router<const MAX_LEN: usize> {
         self.default_routes(command)
     }
 
+    /// Routes the built-in commands to their respective handler.
+    ///
+    /// *Do not override this one, as it provides the routes to built-in
+    /// commands. Changing it to something else could lead to your device not
+    /// being compliant with the ERCP Basic specification.*
     fn default_routes(&mut self, command: Command) -> Option<Command> {
         match command.code() {
             PING => self.handle_ping(command),
@@ -373,26 +433,54 @@ pub trait Router<const MAX_LEN: usize> {
         }
     }
 
+    /// Handles a [`Ping()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ping).
+    ///
+    /// Replies an
+    /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack)
+    /// in all cases.
     fn handle_ping(&mut self, _command: Command) -> Option<Command> {
         Some(ack!())
     }
 
+    /// Handles an [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
+    ///
+    /// Returns `None`.
     fn handle_ack(&mut self, _command: Command) -> Option<Command> {
         None
     }
 
+    /// Handles a [`Nack(reason)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#nackreason).
+    ///
+    /// Returns `None`.
     fn handle_nack(&mut self, _command: Command) -> Option<Command> {
         None
     }
 
+    /// Handles a [`Reset()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#reset).
+    ///
+    /// The default implementation forwards the command to
+    /// [`Router::default_handler`]. You can override it with an implementation
+    /// that actually resets the device.
     fn handle_reset(&mut self, command: Command) -> Option<Command> {
         self.default_handler(command)
     }
 
+    /// Handles a [`Protocol()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol).
+    ///
+    /// Replies with the protocol version implemented by `ercp_basic.rs`.
     fn handle_protocol(&mut self, _command: Command) -> Option<Command> {
         Some(protocol_reply!(version::PROTOCOL_VERSION))
     }
 
+    /// Handles a [`Version(component)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#versioncomponent).
+    ///
+    /// Replies with the version of the component passed as argument. The
+    /// version itself is resolved by [`Router::version`]. You should override
+    /// the latter and not this one.
+    ///
+    /// If the provided arguments are not valid, replies a
+    /// [`Nack(INVALID_ARGUMENTS)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#nackreason)
+    /// instead.
     fn handle_version(&mut self, command: Command) -> Option<Command> {
         if command.length() == 1 {
             let version = self.version(command.value()[0]);
@@ -402,26 +490,83 @@ pub trait Router<const MAX_LEN: usize> {
         }
     }
 
+    /// Handles a [`Max_Length()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length).
+    ///
+    /// Replies with the `MAX_LEN` parameter specified when instantiating the
+    /// ERCP Basic driver.
     fn handle_max_length(&mut self, _command: Command) -> Option<Command> {
         Some(max_length_reply!(MAX_LEN as u8))
     }
 
+    /// Handles a [`Description()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#description).
+    ///
+    /// Replies with the device description returned by [`Router::description`].
+    /// You should override the latter and not this one.
     fn handle_description(&mut self, _command: Command) -> Option<Command> {
         Some(description_reply!(self.description()))
     }
 
+    /// Handles a [`Log(message)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#logmessage).
+    ///
+    /// Replies an
+    /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack)
+    /// in all cases.
     fn handle_log(&mut self, _command: Command) -> Option<Command> {
         Some(ack!())
     }
 
+    /// Handles any unknown command.
+    ///
+    /// Replies a
+    /// [`Nack(UNKNOWN_COMMAND)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#nackreason)
+    /// in all cases.
     fn default_handler(&mut self, _command: Command) -> Option<Command> {
         Some(nack!(nack_reason::UNKNOWN_COMMAND))
     }
 
+    /// Returns the version of the given component.
+    ///
+    /// The default implementation simply calls [`Router::default_versions`],
+    /// which returns the version for the built-in components. To add your own
+    /// component versions, you need to override it:
+    ///
+    /// ```
+    /// use ercp_basic::{Command, Router};
+    ///
+    /// struct ApplicationRouter;
+    ///
+    /// # const COMPONENT_A: u8 = 0x10;
+    /// # const COMPONENT_B: u8 = 0x11;
+    /// # const VERSION_OF_A: &str = "";
+    /// # const VERSION_OF_B: &str = "";
+    /// #
+    /// impl Router<255> for ApplicationRouter {
+    ///     type Context = ();
+    ///
+    ///     fn version(&self, component: u8) -> &str {
+    ///         match component {
+    ///             // Map custom components to their version.
+    ///             COMPONENT_A => VERSION_OF_A,
+    ///             COMPONENT_B => VERSION_OF_B,
+    ///
+    ///             // Always call self.default_versions in the default path.
+    ///             _ => self.default_versions(component),
+    ///         }
+    ///     }
+    /// }
+    /// ```
     fn version(&self, component: u8) -> &str {
         self.default_versions(component)
     }
 
+    /// Returns the version for built-in components.
+    ///
+    /// This returns:
+    ///
+    /// * the value returned by [`Router::firmware_version`] for the firmware,
+    /// * the current [version](`version::LIBRARY_VERSION`) of `ercp_basic.rs`
+    ///   for the ERCP library.
+    /// * `"unknown_component"` for any other component.
     fn default_versions(&self, component: u8) -> &str {
         match component {
             component::FIRMWARE => self.firmware_version(),
@@ -430,10 +575,22 @@ pub trait Router<const MAX_LEN: usize> {
         }
     }
 
+    /// Returns the version of the firmware.
+    ///
+    /// *You should override this function to return the actual version of your
+    /// firmware.*
+    ///
+    /// The default implementation returns `"Generic ERCP firmware"`.
     fn firmware_version(&self) -> &str {
         "Generic ERCP firmware"
     }
 
+    /// Returns the description of the device.
+    ///
+    /// *You should override this function to return the actual description of
+    /// your firmware.*
+    ///
+    /// The default implementation returns `"Generic ERCP device"`.
     fn description(&self) -> &str {
         "Generic ERCP device"
     }
