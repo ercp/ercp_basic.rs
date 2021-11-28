@@ -3,6 +3,12 @@ use probe_rs_rtt::{DownChannel, UpChannel};
 use super::Adapter;
 use crate::error::IoError;
 
+/// An adapter for [`probe_rs_rtt`].
+///
+/// This adapter can be used to instantiate an ERCP Basic driver over RTT
+/// channels on the host side.
+///
+/// *This adapter is currently experimental.*
 #[cfg_attr(docsrs, doc(cfg(feature = "rtt-probe-rs")))]
 pub struct RttProbeRsAdapter {
     down_channel: DownChannel,
@@ -29,7 +35,7 @@ impl Adapter for RttProbeRsAdapter {
 }
 
 impl RttProbeRsAdapter {
-    /// Creates a new RTT adapter.
+    /// Instantiates a new RTT adapter.
     pub fn new(down_channel: DownChannel, up_channel: UpChannel) -> Self {
         Self {
             down_channel,

@@ -3,6 +3,12 @@ use rtt_target::{DownChannel, UpChannel};
 use super::Adapter;
 use crate::error::IoError;
 
+/// An adapter for [`rtt_target`].
+///
+/// This adapter can be used to instantiate an ERCP Basic driver over RTT
+/// channels on the device side.
+///
+/// *This adapter is currently experimental.*
 #[cfg_attr(docsrs, doc(cfg(feature = "rtt")))]
 pub struct RttAdapter {
     down_channel: DownChannel,
@@ -29,7 +35,7 @@ impl Adapter for RttAdapter {
 }
 
 impl RttAdapter {
-    /// Creates a new RTT adapter.
+    /// Instantiates an RTT adapter.
     pub fn new(down_channel: DownChannel, up_channel: UpChannel) -> Self {
         Self {
             down_channel,
