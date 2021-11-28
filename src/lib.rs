@@ -144,7 +144,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// # }
     /// #
     /// // Instantiate an adapter matching your underlying layer.
-    /// let adapter = SomeAdapter::new();
+    /// let adapter = SomeAdapter::new(/* parameters omitted */);
     ///
     /// // Instantiate an ERCP Basic driver using the default router. Here we
     /// // need to partially annotate the type to provide the MAX_LEN parameter.
