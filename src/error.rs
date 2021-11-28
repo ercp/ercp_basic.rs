@@ -1,4 +1,8 @@
 // TODO: Documentation
+// TODO: Use the global Error type only for fatal errors that the direct user
+// would propagate.
+// TODO: Use function-specific errors for errors to be handled by the direct
+// user.
 
 #[cfg(any(feature = "std", test))]
 use std::string::FromUtf8Error;

@@ -235,6 +235,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
     }
 
+    // TODO: Maybe put above handle_data and process? And update the docs?
     /// Blocks until a command has been received an process it.
     ///
     /// This is an alternative to calling [`ErcpBasic::handle_data`] and

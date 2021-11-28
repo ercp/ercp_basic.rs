@@ -1,4 +1,5 @@
 // TODO: Better documentation.
+// TODO: Avoid as u8 since it can be dangerous (annote when justified)
 //! ERCP Basic framing tools.
 
 use heapless::Vec;
@@ -20,6 +21,7 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     }
 
     pub fn reset(&mut self) {
+        // TODO: Use zeroize to avoid optimisations.
         *self = Self::default();
     }
 
@@ -44,6 +46,9 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
         self.code = code;
     }
 
+    // FIXME: Currently, if we change the length /after/ pushing the value, we
+    // can have a length that is inferior to the value size.
+    // FIXME: Another issue can come if the buffer is re-used but not zeroed.
     pub fn set_length(&mut self, length: u8) -> Result<(), FrameError> {
         if length as usize <= MAX_LEN {
             self.length = length;
