@@ -1,10 +1,28 @@
-// TODO: Module doc.
-
 use serialport::SerialPort;
 
 use crate::adapter::Adapter;
 use crate::error::IoError;
 
+/// An adapter for [`serialport`].
+///
+/// This adapter can be used on platform with an OS supported by [`serialport`].
+/// It is typically used to instantiate an ERCP Basic driver over a serial port
+/// on the host side.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::time::Duration;
+/// use ercp_basic::{adapter::SerialPortAdapter, DefaultRouter, ErcpBasic};
+///
+/// let port = serialport::new("/dev/ttyUSB0", 115_200)
+///     .timeout(Duration::from_millis(10))
+///     .open()
+///     .unwrap();
+///
+/// let adapter = SerialPortAdapter::new(port);
+/// let ercp: ErcpBasic<_, _, 255> = ErcpBasic::new(adapter, DefaultRouter);
+/// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "serial-host")))]
 pub struct SerialPortAdapter {
     port: Box<dyn SerialPort>,
@@ -31,7 +49,7 @@ impl Adapter for SerialPortAdapter {
 }
 
 impl SerialPortAdapter {
-    /// Creates a new SerialPort adapter.
+    /// Instantiates a new [`SerialPort`] adapter.
     pub fn new(port: Box<dyn SerialPort>) -> Self {
         Self { port }
     }
