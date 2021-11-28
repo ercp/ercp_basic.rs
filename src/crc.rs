@@ -1,4 +1,6 @@
 //! Module to handle the ERCP Basic CRC.
+//!
+//! *This is an internal module.*
 
 use core::hash::Hasher;
 
