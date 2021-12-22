@@ -2,7 +2,6 @@
 //! ERCP Basic command type and values.
 
 use crate::crc::crc;
-use crate::error::FrameError;
 
 /// A command.
 ///
@@ -28,6 +27,13 @@ use crate::error::FrameError;
 pub struct Command<'a> {
     code: u8,
     value: &'a [u8],
+}
+
+/// An error that can happen when building a command.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NewCommandError {
+    /// The value of the command is too long.
+    TooLong,
 }
 
 /// Tests connectivity ([reference](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ping)).
@@ -92,7 +98,7 @@ impl<'a> Command<'a> {
     ///
     /// As the length is encoded on 8 bits in ERCP Basic frames, the length of
     /// `value` cannot be greater than 255. Trying to build a command with a
-    /// value longer than that results in a [`FrameError`].
+    /// value longer than that results in a [`NewCommandError`].
     ///
     /// # Example
     ///
@@ -102,11 +108,11 @@ impl<'a> Command<'a> {
     /// let result = Command::new(NACK, &[nack_reason::NO_REASON]);
     /// assert!(result.is_ok());
     /// ```
-    pub fn new(code: u8, value: &'a [u8]) -> Result<Self, FrameError> {
+    pub fn new(code: u8, value: &'a [u8]) -> Result<Self, NewCommandError> {
         if value.len() <= u8::MAX.into() {
             Ok(Self { code, value })
         } else {
-            Err(FrameError::TooLong)
+            Err(NewCommandError::TooLong)
         }
     }
 
@@ -198,7 +204,7 @@ impl<'a> Command<'a> {
     ///     Command::new(VERSION_REPLY, "0.1.0".as_bytes())
     /// );
     /// ```
-    pub fn version_reply(version: &'a str) -> Result<Self, FrameError> {
+    pub fn version_reply(version: &'a str) -> Result<Self, NewCommandError> {
         Self::new(VERSION_REPLY, version.as_bytes())
     }
 
@@ -252,7 +258,9 @@ impl<'a> Command<'a> {
     ///     Command::new(DESCRIPTION_REPLY, "Example description".as_bytes())
     /// );
     /// ```
-    pub fn description_reply(description: &'a str) -> Result<Self, FrameError> {
+    pub fn description_reply(
+        description: &'a str,
+    ) -> Result<Self, NewCommandError> {
         Self::new(DESCRIPTION_REPLY, description.as_bytes())
     }
 
@@ -268,7 +276,7 @@ impl<'a> Command<'a> {
     ///     Command::new(LOG, "Some message".as_bytes())
     /// );
     /// ```
-    pub fn log(message: &'a str) -> Result<Self, FrameError> {
+    pub fn log(message: &'a str) -> Result<Self, NewCommandError> {
         Self::new(LOG, message.as_bytes())
     }
 
@@ -623,7 +631,7 @@ mod test {
             code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, (u8::MAX as usize + 1)..1000)
         ) {
-            assert_eq!(Command::new(code, &value), Err(FrameError::TooLong))
+            assert_eq!(Command::new(code, &value), Err(NewCommandError::TooLong))
         }
     }
 

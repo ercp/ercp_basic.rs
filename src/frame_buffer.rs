@@ -15,6 +15,20 @@ pub(crate) struct FrameBuffer<const MAX_LEN: usize> {
     crc: u8,
 }
 
+/// An error that can happen when setting the length.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SetLengthError {
+    /// The length is bigger than `MAX_LEN`.
+    TooLong,
+}
+
+/// An error that can happen when pushing a value byte.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PushValueError {
+    /// The value overflows its declared `length`.
+    Overflow,
+}
+
 impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     pub fn new() -> Self {
         Self::default()
@@ -49,22 +63,22 @@ impl<const MAX_LEN: usize> FrameBuffer<MAX_LEN> {
     // FIXME: Currently, if we change the length /after/ pushing the value, we
     // can have a length that is inferior to the value size.
     // FIXME: Another issue can come if the buffer is re-used but not zeroed.
-    pub fn set_length(&mut self, length: u8) -> Result<(), FrameError> {
+    pub fn set_length(&mut self, length: u8) -> Result<(), SetLengthError> {
         if length as usize <= MAX_LEN {
             self.length = length;
             Ok(())
         } else {
-            Err(FrameError::TooLong)
+            Err(SetLengthError::TooLong)
         }
     }
 
-    pub fn push_value(&mut self, byte: u8) -> Result<(), FrameError> {
+    pub fn push_value(&mut self, byte: u8) -> Result<(), PushValueError> {
         if self.value.len() < self.length.into() {
             // NOTE: value.len() < length <= MAX_LEN == value.capacity().
             self.value.push(byte).ok();
             Ok(())
         } else {
-            Err(FrameError::TooLong)
+            Err(PushValueError::Overflow)
         }
     }
 
@@ -101,7 +115,7 @@ mod test {
     fn frame_buffer() -> impl Strategy<Value = FrameBuffer<255>> {
         (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
             |(code, value)| FrameBuffer {
-                code: code,
+                code,
                 length: value.len() as u8,
                 value: Vec::from_slice(&value).unwrap(),
                 crc: crc(code, &value),
@@ -210,7 +224,7 @@ mod test {
 
             assert_eq!(
                 frame_buffer.set_length(length),
-                Err(FrameError::TooLong)
+                Err(SetLengthError::TooLong)
             );
         }
     }
@@ -241,7 +255,7 @@ mod test {
             assert!(frame_buffer.push_value(value).is_ok());
             assert_eq!(
                 frame_buffer.push_value(value),
-                Err(FrameError::TooLong)
+                Err(PushValueError::Overflow)
             );
         }
     }
@@ -259,7 +273,10 @@ mod test {
                 assert!(frame_buffer.push_value(byte).is_ok());
             }
 
-            assert_eq!(frame_buffer.push_value(next), Err(FrameError::TooLong));
+            assert_eq!(
+                frame_buffer.push_value(next),
+                Err(PushValueError::Overflow)
+            );
         }
     }
 
