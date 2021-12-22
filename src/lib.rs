@@ -463,9 +463,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         let reply = self.command(version!(component))?;
 
         if reply.code() == VERSION_REPLY {
-            if reply.value().len() <= version.len() {
-                version[0..reply.value().len()].copy_from_slice(reply.value());
-                Ok(Ok(reply.value().len()))
+            let length = reply.value().len();
+            if length <= version.len() {
+                version[0..length].copy_from_slice(reply.value());
+                Ok(Ok(length))
             } else {
                 Ok(Err(VersionError::BufferTooShort))
             }
@@ -531,11 +532,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         let reply = self.command(description!())?;
 
         if reply.code() == DESCRIPTION_REPLY {
-            if reply.value().len() <= description.len() {
-                description[0..reply.value().len()]
-                    .copy_from_slice(reply.value());
-
-                Ok(Ok(reply.value().len()))
+            let length = reply.value().len();
+            if length <= description.len() {
+                description[0..length].copy_from_slice(reply.value());
+                Ok(Ok(length))
             } else {
                 Ok(Err(DescriptionError::BufferTooShort))
             }
