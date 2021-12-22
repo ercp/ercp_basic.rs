@@ -1,7 +1,6 @@
 use probe_rs_rtt::{DownChannel, UpChannel};
 
 use super::Adapter;
-use crate::error::IoError;
 
 /// An adapter for [`probe_rs_rtt`].
 ///
@@ -16,20 +15,22 @@ pub struct RttProbeRsAdapter {
 }
 
 impl Adapter for RttProbeRsAdapter {
-    fn read(&mut self) -> Result<Option<u8>, IoError> {
+    type Error = ();
+
+    fn read(&mut self) -> Result<Option<u8>, Self::Error> {
         let mut buf = [0; 1];
 
         match self.up_channel.read(&mut buf) {
             Ok(0) => Ok(None),
             Ok(1) => Ok(Some(buf[0])),
-            _ => Err(IoError::IoError),
+            _ => Err(()),
         }
     }
 
-    fn write(&mut self, byte: u8) -> Result<(), IoError> {
+    fn write(&mut self, byte: u8) -> Result<(), Self::Error> {
         match self.down_channel.write(&[byte]) {
             Ok(1) => Ok(()),
-            _ => Err(IoError::IoError),
+            _ => Err(()),
         }
     }
 }

@@ -196,15 +196,16 @@ use crate::ErcpBasic;
 ///     // Initialise your resources.
 ///     let mut led = Led::init();
 ///
-///     # use ercp_basic::{Adapter, error::IoError};
+///     # use ercp_basic::Adapter;
 ///     #
 ///     # struct SomeAdapter;
 ///     #
 ///     # impl SomeAdapter { fn new() -> Self { SomeAdapter } }
 ///     #
 ///     # impl Adapter for SomeAdapter {
-///     #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
-///     #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+///     #    type Error = ();
+///     #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
+///     #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
 ///     # }
 ///     #
 ///     // Initialise the ERCP Basic driver with your router.

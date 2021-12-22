@@ -132,15 +132,16 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// ```
     /// use ercp_basic::{ErcpBasic, DefaultRouter};
     ///
-    /// # use ercp_basic::{Adapter, error::IoError};
+    /// # use ercp_basic::Adapter;
     /// #
     /// # struct SomeAdapter;
     /// #
     /// # impl SomeAdapter { fn new() -> Self { SomeAdapter } }
     /// #
     /// # impl Adapter for SomeAdapter {
-    /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
-    /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+    /// #    type Error = ();
+    /// #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
     /// // Instantiate an adapter matching your underlying layer.
@@ -199,13 +200,14 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// this way:
     ///
     /// ```
-    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, error::IoError};
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
     /// #
     /// # struct DummyAdapter;
     /// #
     /// # impl Adapter for DummyAdapter {
-    /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
-    /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+    /// #    type Error = ();
+    /// #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
     /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
@@ -246,13 +248,14 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// Basic in a very simple event loop:
     ///
     /// ```no_run
-    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, error::IoError};
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
     /// #
     /// # struct DummyAdapter;
     /// #
     /// # impl Adapter for DummyAdapter {
-    /// #    fn read(&mut self) -> Result<Option<u8>, IoError> { Ok(None) }
-    /// #    fn write(&mut self, byte: u8) -> Result<(), IoError> { Ok(()) }
+    /// #    type Error = ();
+    /// #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
     /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
@@ -321,12 +324,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ///     // attribute ensures the ERCP Basic receiver state is properly reset
     ///     // after the method execution.
     ///     //
-    ///     // Please also note the return type: CommandResult<T, E>. This is a
-    ///     // type alias to Result<Result<T, E>, CommandError>. Using two
-    ///     // levels of results helps to separate the command-specific errors
-    ///     // from the system-level errors (i.e. I/O errors and frame errors).
+    ///     // Please also note the return type: CommandResult<T, E, IoError>.
+    ///     // This is a type alias to Result<Result<T, E>, CommandError<IoError>>.
+    ///     // Using two levels of results helps to separate the command-specific
+    ///     // errors `E` from the system-level `CommandError` (i.e. I/O errors
+    ///     // and frame errors).
     ///     #[command]
-    ///     fn some_command(&mut self, arg: u8) -> CommandResult<u8, SomeCommandError> {
+    ///     fn some_command(&mut self, arg: u8) -> CommandResult<u8, SomeCommandError, A::Error> {
     ///         // 1. Prepare your command.
     ///         let value = [arg];
     ///         // NOTE(unwrap): We control the size of `value`, and know it is
@@ -354,9 +358,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     pub fn command(
         &mut self,
         command: Command,
-    ) -> Result<Command, CommandError> {
-        self.connection.send(command)?;
+    ) -> Result<Command, CommandError<A::Error>> {
+        self.connection
+            .send(command)
+            .map_err(CommandError::IoError)?;
+
         self.wait_for_command();
+
         let reply = self
             .rx_frame
             .check_frame()
@@ -381,7 +389,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// This sends the command to the peer device like [`ErcpBasic::command`],
     /// but do not wait for a reply. There is no guarantee that the command has
     /// been received.
-    pub fn notify(&mut self, command: Command) -> Result<(), IoError> {
+    pub fn notify(&mut self, command: Command) -> Result<(), A::Error> {
         self.connection.send(command)?;
         Ok(())
     }
@@ -394,7 +402,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// when the reply is an
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     #[command(self)]
-    pub fn ping(&mut self) -> CommandResult<(), PingError> {
+    pub fn ping(&mut self) -> CommandResult<(), PingError, A::Error> {
         let reply = self.command(ping!())?;
 
         if reply.code() == ACK {
@@ -414,7 +422,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// If the peer device does not support resets, this returns
     /// `Ok(Err(ResetError::UnhandledCommand))`.
     #[command(self)]
-    pub fn reset(&mut self) -> CommandResult<(), ResetError> {
+    pub fn reset(&mut self) -> CommandResult<(), ResetError, A::Error> {
         let reply = self.command(reset!())?;
 
         match reply.code() {
@@ -439,7 +447,9 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// `Ok(Ok(version))` when the reply is a [`Protocol_Reply(major, minor,
     /// patch)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol_replymajor-minor-patch).
     #[command(self)]
-    pub fn protocol(&mut self) -> CommandResult<Version, ProtocolError> {
+    pub fn protocol(
+        &mut self,
+    ) -> CommandResult<Version, ProtocolError, A::Error> {
         let reply = self.command(protocol!())?;
 
         if reply.code() == PROTOCOL_REPLY && reply.length() == 3 {
@@ -473,7 +483,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         &mut self,
         component: u8,
         version: &mut [u8],
-    ) -> CommandResult<usize, VersionError> {
+    ) -> CommandResult<usize, VersionError, A::Error> {
         let reply = self.command(version!(component))?;
 
         if reply.code() == VERSION_REPLY {
@@ -500,7 +510,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     pub fn version_as_string(
         &mut self,
         component: u8,
-    ) -> CommandResult<String, VersionAsStringError> {
+    ) -> CommandResult<String, VersionAsStringError, A::Error> {
         let reply = self.command(version!(component))?;
 
         if reply.code() == VERSION_REPLY {
@@ -518,7 +528,9 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// `Ok(Ok(max_length))` when the reply is a
     /// [`Max_Length_Reply(max_length)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length_replymax_length).
     #[command(self)]
-    pub fn max_length(&mut self) -> CommandResult<u8, MaxLengthError> {
+    pub fn max_length(
+        &mut self,
+    ) -> CommandResult<u8, MaxLengthError, A::Error> {
         let reply = self.command(max_length!())?;
 
         if reply.code() == MAX_LENGTH_REPLY && reply.length() == 1 {
@@ -542,7 +554,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     pub fn description(
         &mut self,
         description: &mut [u8],
-    ) -> CommandResult<usize, DescriptionError> {
+    ) -> CommandResult<usize, DescriptionError, A::Error> {
         let reply = self.command(description!())?;
 
         if reply.code() == DESCRIPTION_REPLY {
@@ -568,7 +580,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     #[command(self)]
     pub fn description_as_string(
         &mut self,
-    ) -> CommandResult<String, DescriptionAsStringError> {
+    ) -> CommandResult<String, DescriptionAsStringError, A::Error> {
         let reply = self.command(description!())?;
 
         if reply.code() == DESCRIPTION_REPLY {
@@ -584,9 +596,12 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// [`Log(message)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#logmessage)
     /// without waiting for an acknowledgement. There is no guarantee that any
     /// peer device receives the log.
-    pub fn log(&mut self, message: &str) -> CommandResult<(), LogError> {
+    pub fn log(
+        &mut self,
+        message: &str,
+    ) -> CommandResult<(), LogError, A::Error> {
         if let Ok(command) = Command::log(message) {
-            self.notify(command)?;
+            self.notify(command).map_err(CommandError::IoError)?;
             Ok(Ok(()))
         } else {
             Ok(Err(LogError::TooLong))
@@ -601,7 +616,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// when the reply is an
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     #[command(self)]
-    pub fn sync_log(&mut self, message: &str) -> CommandResult<(), LogError> {
+    pub fn sync_log(
+        &mut self,
+        message: &str,
+    ) -> CommandResult<(), LogError, A::Error> {
         let command = match Command::log(message) {
             Ok(command) => command,
             Err(NewCommandError::TooLong) => return Ok(Err(LogError::TooLong)),
@@ -717,7 +735,6 @@ mod tests {
     use super::*;
     use connection::tests::TestAdapter;
     use crc::crc;
-    use error::IoError;
     use router::DefaultRouter;
 
     use proptest::collection::vec;
@@ -1363,8 +1380,8 @@ mod tests {
     #[test]
     fn command_returns_an_error_on_write_errors() {
         setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(IoError::IoError);
-            assert_eq!(ercp.command(ping!()), Err(IoError::IoError.into()));
+            ercp.connection.adapter().write_error = Some(());
+            assert_eq!(ercp.command(ping!()), Err(CommandError::IoError(())));
         });
     }
 
@@ -1372,8 +1389,8 @@ mod tests {
     // #[test]
     // fn command_returns_an_error_on_read_errors() {
     //     setup(|mut ercp| {
-    //         ercp.connection.adapter().read_error = Some(IoError::IoError);
-    //         assert_eq!(ercp.command(ping!()), Err(IoError::IoError.into()));
+    //         ercp.connection.adapter().read_error = Some(());
+    //         assert_eq!(ercp.command(ping!()), Err(CommandError::IoError(())));
     //     });
     // }
 
@@ -1474,9 +1491,9 @@ mod tests {
         ) {
             setup(|mut ercp| {
                 let command = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().write_error = Some(IoError::IoError);
+                ercp.connection.adapter().write_error = Some(());
 
-                assert_eq!(ercp.notify(command), Err(IoError::IoError));
+                assert_eq!(ercp.notify(command), Err(()));
             })
         }
     }
@@ -1522,8 +1539,8 @@ mod tests {
     #[test]
     fn ping_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(IoError::IoError);
-            assert_eq!(ercp.ping(), Err(IoError::IoError.into()));
+            ercp.connection.adapter().write_error = Some(());
+            assert_eq!(ercp.ping(), Err(CommandError::IoError(())));
         });
     }
 
@@ -1595,8 +1612,8 @@ mod tests {
     #[test]
     fn reset_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(IoError::IoError);
-            assert_eq!(ercp.reset(), Err(IoError::IoError.into()));
+            ercp.connection.adapter().write_error = Some(());
+            assert_eq!(ercp.reset(), Err(CommandError::IoError(())));
         });
     }
 
@@ -1677,8 +1694,8 @@ mod tests {
     #[test]
     fn protocol_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(IoError::IoError);
-            assert_eq!(ercp.protocol(), Err(IoError::IoError.into()));
+            ercp.connection.adapter().write_error = Some(());
+            assert_eq!(ercp.protocol(), Err(CommandError::IoError(())));
         });
     }
 
@@ -1800,10 +1817,10 @@ mod tests {
             component in 0..=u8::MAX,
         ) {
             setup(|mut ercp| {
-                ercp.connection.adapter().write_error = Some(IoError::IoError);
+                ercp.connection.adapter().write_error = Some(());
                 assert_eq!(
                     ercp.version(component, &mut []),
-                    Err(IoError::IoError.into())
+                    Err(CommandError::IoError(()))
                 );
             });
         }
@@ -1890,10 +1907,10 @@ mod tests {
             component in 0..=u8::MAX,
         ) {
             setup(|mut ercp| {
-                ercp.connection.adapter().write_error = Some(IoError::IoError);
+                ercp.connection.adapter().write_error = Some(());
                 assert_eq!(
                     ercp.version_as_string(component),
-                    Err(IoError::IoError.into())
+                    Err(CommandError::IoError(()))
                 );
             });
         }
@@ -1972,8 +1989,8 @@ mod tests {
     #[test]
     fn max_length_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(IoError::IoError);
-            assert_eq!(ercp.max_length(), Err(IoError::IoError.into()));
+            ercp.connection.adapter().write_error = Some(());
+            assert_eq!(ercp.max_length(), Err(CommandError::IoError(())));
         });
     }
 
@@ -2086,8 +2103,11 @@ mod tests {
     #[test]
     fn description_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(IoError::IoError);
-            assert_eq!(ercp.description(&mut []), Err(IoError::IoError.into()));
+            ercp.connection.adapter().write_error = Some(());
+            assert_eq!(
+                ercp.description(&mut []),
+                Err(CommandError::IoError(()))
+            );
         });
     }
 
@@ -2162,10 +2182,10 @@ mod tests {
     #[test]
     fn description_as_string_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(IoError::IoError);
+            ercp.connection.adapter().write_error = Some(());
             assert_eq!(
                 ercp.description_as_string(),
-                Err(IoError::IoError.into())
+                Err(CommandError::IoError(()))
             );
         });
     }
@@ -2207,10 +2227,10 @@ mod tests {
             message in ".{0,100}",
         ) {
             setup(|mut ercp| {
-                ercp.connection.adapter().write_error = Some(IoError::IoError);
+                ercp.connection.adapter().write_error = Some(());
                 assert_eq!(
                     ercp.log(&message),
-                    Err(IoError::IoError.into())
+                    Err(CommandError::IoError(()))
                 );
             });
         }
@@ -2261,10 +2281,10 @@ mod tests {
             message in ".{0,100}",
         ) {
             setup(|mut ercp| {
-                ercp.connection.adapter().write_error = Some(IoError::IoError);
+                ercp.connection.adapter().write_error = Some(());
                 assert_eq!(
                     ercp.sync_log(&message),
-                    Err(IoError::IoError.into())
+                    Err(CommandError::IoError(()))
                 );
             });
         }

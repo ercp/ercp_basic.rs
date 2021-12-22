@@ -4,14 +4,6 @@ use crate::command::NewCommandError;
 #[cfg(any(feature = "std", test))]
 use std::string::FromUtf8Error;
 
-// TODO: Replace with an adapter-specific error.
-/// An error that can happen on connection I/O.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum IoError {
-    /// An error has occured while writing or reading data.
-    IoError,
-}
-
 /// An error that can happen on frames.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameError {
@@ -23,7 +15,7 @@ pub enum FrameError {
 
 /// A system-level error that can happen while sending / receiving a command.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum CommandError {
+pub enum CommandError<IoError> {
     /// An error has occured while writing or reading data.
     IoError(IoError),
     /// A frame has been received, but it is erroneous.
@@ -33,7 +25,8 @@ pub enum CommandError {
 }
 
 /// A typical command result.
-pub type CommandResult<T, E> = Result<Result<T, E>, CommandError>;
+pub type CommandResult<T, E, IoError> =
+    Result<Result<T, E>, CommandError<IoError>>;
 
 /// The minimal protocol-level error that can happen on commands.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -102,12 +95,6 @@ impl From<NewCommandError> for FrameError {
         match error {
             NewCommandError::TooLong => FrameError::TooLong,
         }
-    }
-}
-
-impl From<IoError> for CommandError {
-    fn from(error: IoError) -> Self {
-        Self::IoError(error)
     }
 }
 

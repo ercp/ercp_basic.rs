@@ -2,7 +2,6 @@ use embedded_hal::serial::{Read, Write};
 use nb::block;
 
 use super::Adapter;
-use crate::error::IoError;
 
 /// An adapter for [`embedded_hal::serial`].
 ///
@@ -48,14 +47,16 @@ pub struct SerialAdapter<S: Read<u8> + Write<u8>> {
 }
 
 impl<S: Read<u8> + Write<u8>> Adapter for SerialAdapter<S> {
-    fn read(&mut self) -> Result<Option<u8>, IoError> {
+    type Error = ();
+
+    fn read(&mut self) -> Result<Option<u8>, Self::Error> {
         // TODO: Handle errors.
         let result = self.serial.read().ok();
         Ok(result)
     }
 
-    fn write(&mut self, byte: u8) -> Result<(), IoError> {
-        block!(self.serial.write(byte)).map_err(|_| IoError::IoError)
+    fn write(&mut self, byte: u8) -> Result<(), Self::Error> {
+        block!(self.serial.write(byte)).map_err(|_| ())
     }
 }
 

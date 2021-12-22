@@ -7,7 +7,6 @@
 
 use crate::adapter::Adapter;
 use crate::command::Command;
-use crate::error::IoError;
 use crate::EOT;
 
 /// An ERCP Basic connection.
@@ -28,17 +27,17 @@ impl<A: Adapter> Connection<A> {
     }
 
     /// Reads a byte from the connection.
-    pub fn read(&mut self) -> Result<Option<u8>, IoError> {
+    pub fn read(&mut self) -> Result<Option<u8>, A::Error> {
         self.adapter.read()
     }
 
     /// Writes a byte to the connection.
-    pub fn write(&mut self, byte: u8) -> Result<(), IoError> {
+    pub fn write(&mut self, byte: u8) -> Result<(), A::Error> {
         self.adapter.write(byte)
     }
 
     /// Sends a command on the connection.
-    pub fn send(&mut self, command: Command) -> Result<(), IoError> {
+    pub fn send(&mut self, command: Command) -> Result<(), A::Error> {
         for byte in [b'E', b'R', b'C', b'P', b'B'] {
             self.write(byte)?;
         }
@@ -68,7 +67,6 @@ impl<A: Adapter> Connection<A> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::error::IoError;
 
     use std::collections::VecDeque;
 
@@ -79,26 +77,28 @@ pub(crate) mod tests {
     pub(crate) struct TestAdapter {
         tx_buffer: VecDeque<u8>,
         rx_buffer: VecDeque<u8>,
-        pub write_error: Option<IoError>,
-        pub read_error: Option<IoError>,
+        pub write_error: Option<()>,
+        pub read_error: Option<()>,
     }
 
     impl Adapter for TestAdapter {
-        fn read(&mut self) -> Result<Option<u8>, IoError> {
+        type Error = ();
+
+        fn read(&mut self) -> Result<Option<u8>, Self::Error> {
             match self.read_error {
                 None => Ok(self.rx_buffer.pop_front()),
-                Some(error) => Err(error),
+                Some(()) => Err(()),
             }
         }
 
-        fn write(&mut self, byte: u8) -> Result<(), IoError> {
+        fn write(&mut self, byte: u8) -> Result<(), Self::Error> {
             match self.write_error {
                 None => {
                     self.tx_buffer.push_back(byte);
                     Ok(())
                 }
 
-                Some(error) => Err(error),
+                Some(()) => Err(()),
             }
         }
     }
@@ -143,8 +143,8 @@ pub(crate) mod tests {
     #[test]
     fn read_returns_an_error_on_read_error() {
         setup(|mut connection| {
-            connection.adapter.read_error = Some(IoError::IoError);
-            assert_eq!(connection.read(), Err(IoError::IoError));
+            connection.adapter.read_error = Some(());
+            assert_eq!(connection.read(), Err(()));
         });
     }
 
@@ -162,8 +162,8 @@ pub(crate) mod tests {
         #[test]
         fn write_returns_an_error_on_write_error(byte in 0..=u8::MAX) {
             setup(|mut connection| {
-                connection.adapter.write_error = Some(IoError::IoError);
-                assert_eq!(connection.write(byte), Err(IoError::IoError));
+                connection.adapter.write_error = Some(());
+                assert_eq!(connection.write(byte), Err(()));
             });
         }
     }
@@ -194,9 +194,9 @@ pub(crate) mod tests {
         ) {
             setup(|mut connection| {
                 let command = Command::new(code, &value).unwrap();
-                connection.adapter.write_error = Some(IoError::IoError);
+                connection.adapter.write_error = Some(());
 
-                assert_eq!(connection.send(command), Err(IoError::IoError));
+                assert_eq!(connection.send(command), Err(()));
             });
         }
     }

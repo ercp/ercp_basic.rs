@@ -1,7 +1,6 @@
 use serialport::SerialPort;
 
 use crate::adapter::Adapter;
-use crate::error::IoError;
 
 /// An adapter for [`serialport`].
 ///
@@ -29,7 +28,9 @@ pub struct SerialPortAdapter {
 }
 
 impl Adapter for SerialPortAdapter {
-    fn read(&mut self) -> Result<Option<u8>, IoError> {
+    type Error = ();
+
+    fn read(&mut self) -> Result<Option<u8>, Self::Error> {
         let mut buf = [0; 1];
 
         match self.port.read(&mut buf) {
@@ -40,10 +41,10 @@ impl Adapter for SerialPortAdapter {
         }
     }
 
-    fn write(&mut self, byte: u8) -> Result<(), IoError> {
+    fn write(&mut self, byte: u8) -> Result<(), Self::Error> {
         match self.port.write(&[byte]) {
             Ok(1) => Ok(()),
-            _ => Err(IoError::IoError),
+            _ => Err(()),
         }
     }
 }

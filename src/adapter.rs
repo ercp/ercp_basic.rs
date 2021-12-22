@@ -18,8 +18,6 @@ pub use serial::SerialAdapter;
 #[cfg(feature = "serial-host")]
 pub use serial_host::SerialPortAdapter;
 
-use crate::error::IoError;
-
 /// A connection adapter.
 ///
 /// An adapter is the piece of software that makes the link between the ERCP
@@ -28,7 +26,8 @@ use crate::error::IoError;
 /// You can find several built-in adapters in the [`adapter`](`self`) module,
 /// and you can write your own by implementing the [`Adapter`] trait.
 pub trait Adapter {
-    // IDEA: Replace IoError with an implementation-defined type.
+    /// The error type for the adapter.
+    type Error;
 
     /// Reads a byte from the connection.
     ///
@@ -39,8 +38,8 @@ pub trait Adapter {
     ///
     /// # Errors
     ///
-    /// Any call to this function may generate an I/O error.
-    fn read(&mut self) -> Result<Option<u8>, IoError>;
+    /// Any call to this function may generate a [`Self::Error`].
+    fn read(&mut self) -> Result<Option<u8>, Self::Error>;
 
     /// Writes a byte to the connection.
     ///
@@ -50,6 +49,6 @@ pub trait Adapter {
     ///
     /// # Errors
     ///
-    /// Any call to this function may generate an I/O error.
-    fn write(&mut self, byte: u8) -> Result<(), IoError>;
+    /// Any call to this function may generate a [`Self::Error`].
+    fn write(&mut self, byte: u8) -> Result<(), Self::Error>;
 }
