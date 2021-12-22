@@ -28,6 +28,8 @@ pub enum CommandError {
     IoError(IoError),
     /// A frame has been received, but it is erroneous.
     ReceivedFrameError(FrameError),
+    /// The peer has reported an error with the frame it has received.
+    SentFrameError(FrameError),
 }
 
 /// A typical command result.
@@ -106,12 +108,6 @@ impl From<NewCommandError> for FrameError {
 impl From<IoError> for CommandError {
     fn from(error: IoError) -> Self {
         Self::IoError(error)
-    }
-}
-
-impl From<FrameError> for CommandError {
-    fn from(error: FrameError) -> Self {
-        Self::ReceivedFrameError(error)
     }
 }
 

@@ -357,7 +357,23 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ) -> Result<Command, CommandError> {
         self.connection.send(command)?;
         self.wait_for_command();
-        self.rx_frame.check_frame().map_err(Into::into)
+        let reply = self
+            .rx_frame
+            .check_frame()
+            .map_err(CommandError::ReceivedFrameError)?;
+
+        // Check for any frame-level error notification from the peer.
+        match (reply.code(), reply.value()) {
+            (NACK, [nack_reason::TOO_LONG]) => {
+                Err(CommandError::SentFrameError(FrameError::TooLong))
+            }
+
+            (NACK, [nack_reason::INVALID_CRC]) => {
+                Err(CommandError::SentFrameError(FrameError::InvalidCrc))
+            }
+
+            _ => Ok(reply),
+        }
     }
 
     /// Sends a notification to the peer device.
@@ -369,8 +385,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         self.connection.send(command)?;
         Ok(())
     }
-
-    // TODO: Handle the case where we receive a Nack(TOO_LONG).
 
     /// Pings the peer device.
     ///
@@ -1408,6 +1422,30 @@ mod tests {
     //         );
     //     }
     // }
+
+    #[test]
+    fn command_returns_an_error_when_the_peer_reports_an_invalid_crc() {
+        setup(|mut ercp| {
+            let reply = nack!(nack_reason::INVALID_CRC);
+            ercp.connection.adapter().test_send(&reply.as_frame());
+            assert_eq!(
+                ercp.command(ping!()),
+                Err(CommandError::SentFrameError(FrameError::InvalidCrc))
+            );
+        });
+    }
+
+    #[test]
+    fn command_returns_an_error_when_the_frame_is_too_long_for_the_peer() {
+        setup(|mut ercp| {
+            let reply = nack!(nack_reason::TOO_LONG);
+            ercp.connection.adapter().test_send(&reply.as_frame());
+            assert_eq!(
+                ercp.command(ping!()),
+                Err(CommandError::SentFrameError(FrameError::TooLong))
+            );
+        });
+    }
 
     proptest! {
         #[test]
