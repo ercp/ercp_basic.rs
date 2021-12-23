@@ -199,8 +199,8 @@ mod test {
         #[test]
         fn set_code_sets_the_code(code in 0..=u8::MAX) {
             let mut frame_buffer = FrameBuffer::<255>::new();
-
             frame_buffer.set_code(code);
+
             assert_eq!(frame_buffer.code, code);
         }
     }
