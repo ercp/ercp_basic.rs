@@ -173,16 +173,17 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// You **must** call this function regularly somewhere in your code for
     /// ERCP Basic to work properly. Typical places to call it include your
     /// connection interrupt handler, an event loop, etc.
-    // TODO: Return a Result to propagate IO errors.
-    pub fn handle_data(&mut self) {
-        loop {
-            match self.connection.read() {
-                Ok(Some(byte)) => self.receive(byte),
-                Ok(None) => break,
-                // TODO: Propagate the IO error.
-                Err(_) => todo!(),
-            }
+    ///
+    /// # Errors
+    ///
+    /// If the connection adapter encounters an error while trying to read data,
+    /// this function stops and forwards the error from the adapter.
+    pub fn handle_data(&mut self) -> Result<(), A::Error> {
+        while let Some(byte) = self.connection.read()? {
+            self.receive(byte);
         }
+
+        Ok(())
     }
 
     /// Returns wether a complete frame has been received.
@@ -245,7 +246,14 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ///
     /// This is an alternative to calling [`ErcpBasic::handle_data`] and
     /// [`ErcpBasic::process`] directly which can be used to integrate ERCP
-    /// Basic in a very simple event loop:
+    /// Basic in a very simple event loop.
+    ///
+    /// # Errors
+    ///
+    /// If the connection adapter encounters an error while trying to read data,
+    /// this function stops and forwards the error from the adapter.
+    ///
+    /// # Example
     ///
     /// ```no_run
     /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
@@ -260,15 +268,21 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// #
     /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
     /// loop {
-    ///     ercp.accept_command(&mut ());
+    ///     if let Err(e) = ercp.accept_command(&mut ()) {
+    ///         // If the connection adapter has encountered an error. You can
+    ///         // just retry gracefully, log the error, or take some action.
+    ///     }
     ///
     ///     // Optionally do some post-processing.
     /// }
     /// ```
-    // TODO: Return a Result so the user can check for system errors.
-    pub fn accept_command(&mut self, context: &mut R::Context) {
-        self.wait_for_command();
+    pub fn accept_command(
+        &mut self,
+        context: &mut R::Context,
+    ) -> Result<(), A::Error> {
+        self.wait_for_command()?;
         self.process(context);
+        Ok(())
     }
 
     /// Sends a command to the peer device, and waits for a reply.
@@ -363,7 +377,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
             .send(command)
             .map_err(CommandError::IoError)?;
 
-        self.wait_for_command();
+        self.wait_for_command().map_err(CommandError::IoError)?;
 
         let reply = self
             .rx_frame
@@ -717,16 +731,18 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     }
 
     /// Blocks until a complete frame has been received.
-    fn wait_for_command(&mut self) {
+    fn wait_for_command(&mut self) -> Result<(), A::Error> {
         while !self.complete_frame_received() {
             // TODO: Do different things depending on features.
 
             // TODO: Only with the blocking feature.
-            self.handle_data();
+            self.handle_data()?;
 
             // TODO: WFI on Cortex-M.
             // TODO: Timeout (idea: use a struct field)
         }
+
+        Ok(())
     }
 }
 
@@ -1195,11 +1211,18 @@ mod tests {
     ////////////////////////////// Data input //////////////////////////////
 
     #[test]
+    fn handle_data_returns_ok() {
+        setup(|mut ercp| {
+            assert_eq!(ercp.handle_data(), Ok(()));
+        });
+    }
+
+    #[test]
     fn handle_data_processes_incoming_data() {
         setup(|mut ercp| {
             let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
             ercp.connection.adapter().test_send(&frame);
-            ercp.handle_data();
+            ercp.handle_data().ok();
             assert_eq!(ercp.state, State::Complete);
         });
     }
@@ -1207,16 +1230,18 @@ mod tests {
     #[test]
     fn handle_data_does_nothing_on_no_data() {
         setup(|mut ercp| {
-            ercp.handle_data();
+            ercp.handle_data().ok();
             assert_eq!(ercp.state, State::Ready);
         });
     }
 
-    // #[test]
-    // fn handle_data_does_something_with_read_errors() {
-    //     // TODO: Error handling.
-    //     todo!();
-    // }
+    #[test]
+    fn handle_data_returns_an_error_on_read_errors() {
+        setup(|mut ercp| {
+            ercp.connection.adapter().read_error = Some(());
+            assert_eq!(ercp.handle_data(), Err(()));
+        });
+    }
 
     #[test]
     fn complete_frame_received_returns_true_in_complete_state() {
@@ -1385,14 +1410,13 @@ mod tests {
         });
     }
 
-    // TODO: Uncomment when implemented.
-    // #[test]
-    // fn command_returns_an_error_on_read_errors() {
-    //     setup(|mut ercp| {
-    //         ercp.connection.adapter().read_error = Some(());
-    //         assert_eq!(ercp.command(ping!()), Err(CommandError::IoError(())));
-    //     });
-    // }
+    #[test]
+    fn command_returns_an_error_on_read_errors() {
+        setup(|mut ercp| {
+            ercp.connection.adapter().read_error = Some(());
+            assert_eq!(ercp.command(ping!()), Err(CommandError::IoError(())));
+        });
+    }
 
     proptest! {
         #[test]
