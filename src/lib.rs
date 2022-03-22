@@ -195,6 +195,14 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
 
     /// Processes any received command.
     ///
+    /// # Errors
+    ///
+    /// If the connection adapter encounters an error while trying to write the
+    /// reply or a notification, this function forwards it error from the
+    /// adapter.
+    ///
+    /// # Example
+    ///
     /// The context can be used by your router to make any resource or data
     /// available during the command processing. If you are using the
     /// [`DefaultRouter`], where the context is `()`, you can call `process`
@@ -212,33 +220,42 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// # }
     /// #
     /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
-    /// ercp.process(&mut ());
+    /// if let Err(e) = ercp.process(&mut ()) {
+    ///     // Do something with the error.
+    /// }
     /// ```
     ///
     /// You **must** call this function regularly somewhere in your code for
     /// ERCP Basic to work properly. It could be run for instance in a specific
     /// task or thread.
-    // TODO: Return a Result so the user can check for system errors.
-    pub fn process(&mut self, context: &mut R::Context) {
+    //
+    // NOTE: While `process` is not a command, the state must be reset after its
+    // execution, even when it fails. As the `command` attribute simply wraps a
+    // function to achieve exactly this goal, let’s use it here.
+    #[command(self)]
+    pub fn process(
+        &mut self,
+        context: &mut R::Context,
+    ) -> Result<(), A::Error> {
         // TODO: Use next_command once it is in a sub-struct.
         if self.complete_frame_received() {
             match self.rx_frame.check_frame() {
                 Ok(command) => {
                     if let Some(reply) = self.router.route(command, context) {
-                        self.connection.send(reply);
+                        self.connection.send(reply)?;
                     }
                 }
 
                 Err(FrameError::InvalidCrc) => {
-                    self.notify(nack!(nack_reason::INVALID_CRC));
+                    self.notify(nack!(nack_reason::INVALID_CRC))?;
                 }
 
                 // REVIEW: This should not be reachable at this point.
                 Err(FrameError::TooLong) => unreachable!(),
             }
-
-            self.reset_state();
         }
+
+        Ok(())
     }
 
     // TODO: Maybe put above handle_data and process? And update the docs?
@@ -281,7 +298,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         context: &mut R::Context,
     ) -> Result<(), A::Error> {
         self.wait_for_command()?;
-        self.process(context);
+        self.process(context)?;
         Ok(())
     }
 
@@ -1270,6 +1287,13 @@ mod tests {
 
     ////////////////////////// Command processing //////////////////////////
 
+    #[test]
+    fn process_returns_ok() {
+        setup(|mut ercp| {
+            assert_eq!(ercp.process(&mut ()), Ok(()));
+        });
+    }
+
     proptest! {
         #[test]
         fn process_routes_the_command_to_its_handler(
@@ -1278,7 +1302,7 @@ mod tests {
             let command: OwnedCommand =
                 ercp.rx_frame.check_frame().unwrap().into();
 
-            ercp.process(&mut ());
+            ercp.process(&mut ()).ok();
 
             assert!(ercp.router.last_command.is_some());
             let expected_command = ercp.router.last_command.unwrap();
@@ -1299,7 +1323,7 @@ mod tests {
 
             ercp.router.reply = Some(reply.into());
 
-            ercp.process(&mut ());
+            ercp.process(&mut ()).ok();
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -1314,7 +1338,7 @@ mod tests {
         ) {
             ercp.router.reply = None;
 
-            ercp.process(&mut ());
+            ercp.process(&mut ()).ok();
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 // NOTE: Type inference does not work due to an issue in
@@ -1333,7 +1357,7 @@ mod tests {
             prop_assume!(bad_crc != ercp.rx_frame.crc());
             ercp.rx_frame.set_crc(bad_crc);
 
-            ercp.process(&mut ());
+            ercp.process(&mut ()).ok();
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 nack!(nack_reason::INVALID_CRC).as_frame()
@@ -1346,7 +1370,7 @@ mod tests {
         fn process_resets_the_state_machine(
             mut ercp in ercp(State::Complete),
         ) {
-            ercp.process(&mut ());
+            ercp.process(&mut ()).ok();
             assert_eq!(ercp.state, State::Ready);
         }
     }
@@ -1356,7 +1380,32 @@ mod tests {
         fn process_resets_the_rx_frame(
             mut ercp in ercp(State::Complete),
         ) {
-            ercp.process(&mut ());
+            ercp.process(&mut ()).ok();
+            assert_eq!(ercp.rx_frame, FrameBuffer::default());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn process_returns_an_error_on_write_errors(
+            mut ercp in ercp(State::Complete),
+        ) {
+            ercp.router.reply = Some(ack!().into());
+            ercp.connection.adapter().write_error = Some(());
+
+            assert_eq!(ercp.process(&mut ()), Err(()));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn process_still_resets_the_rx_frame_on_errors(
+            mut ercp in ercp(State::Complete),
+        ) {
+            ercp.router.reply = Some(ack!().into());
+            ercp.connection.adapter().write_error = Some(());
+            ercp.process(&mut ()).err();
+
             assert_eq!(ercp.rx_frame, FrameBuffer::default());
         }
     }
