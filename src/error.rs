@@ -4,6 +4,19 @@ use crate::command::NewCommandError;
 #[cfg(any(feature = "std", test))]
 use std::string::FromUtf8Error;
 
+/// An error that can happen when receiving data.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ReceiveError {
+    /// An unexpected value has been received during at the init stage.
+    UnexpectedValue,
+    /// The length is too long.
+    TooLong,
+    /// The EOT field does not contain EOT.
+    NotEot,
+    /// Data has been received while a previous command is being processed.
+    Overflow,
+}
+
 /// An error that can happen on frames.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameError {

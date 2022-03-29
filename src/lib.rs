@@ -176,11 +176,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ///
     /// # Errors
     ///
-    /// If the connection adapter encounters an error while trying to read data,
-    /// this function stops and forwards the error from the adapter.
+    /// If the connection adapter encounters an error while trying to read or
+    /// write data, this function stops and forwards the error from the adapter.
     pub fn handle_data(&mut self) -> Result<(), A::Error> {
         while let Some(byte) = self.connection.read()? {
-            self.receive(byte);
+            if let Err(ReceiveError::TooLong) = self.receive(byte) {
+                self.notify(nack!(nack_reason::TOO_LONG))?;
+            }
         }
 
         Ok(())
@@ -673,24 +675,27 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         self.rx_frame.reset();
     }
 
-    // TODO: Return a status.
     /// Receives a byte.
-    fn receive(&mut self, byte: u8) {
+    fn receive(&mut self, byte: u8) -> Result<(), ReceiveError> {
         match self.state {
             State::Ready => {
                 if byte == b'E' {
                     self.state = State::Init(InitState::R);
+                    Ok(())
                 } else {
                     // Ignore unexpected data.
+                    Err(ReceiveError::UnexpectedValue)
                 }
             }
 
             State::Init(init_state) => {
                 if byte == init_state.value() as u8 {
                     self.state = init_state.next_state();
+                    Ok(())
                 } else {
                     // Unexpected value => reset.
                     self.state = State::Ready;
+                    Err(ReceiveError::UnexpectedValue)
                 }
             }
 
@@ -698,6 +703,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
                 Field::Code => {
                     self.rx_frame.set_code(byte);
                     self.state = State::Receiving(Field::Length);
+                    Ok(())
                 }
 
                 Field::Length => match self.rx_frame.set_length(byte) {
@@ -708,11 +714,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
                         } else {
                             self.state = State::Receiving(Field::Value);
                         }
+
+                        Ok(())
                     }
 
                     Err(SetLengthError::TooLong) => {
                         self.reset_state();
-                        self.notify(nack!(nack_reason::TOO_LONG));
+                        Err(ReceiveError::TooLong)
                     }
                 },
 
@@ -724,25 +732,31 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
                     if self.rx_frame.value_is_complete() {
                         self.state = State::Receiving(Field::CRC);
                     }
+
+                    Ok(())
                 }
 
                 Field::CRC => {
                     self.rx_frame.set_crc(byte);
                     self.state = State::Receiving(Field::EOT);
+                    Ok(())
                 }
 
                 Field::EOT => {
                     if byte == EOT {
                         self.state = State::Complete;
+                        Ok(())
                     } else {
                         // Unexpected value => reset.
                         self.reset_state();
+                        Err(ReceiveError::NotEot)
                     }
                 }
             },
 
             State::Complete => {
                 // Ignore unexpected data.
+                Err(ReceiveError::Overflow)
             }
         }
     }
@@ -897,12 +911,27 @@ mod tests {
 
     proptest! {
         #[test]
-        fn receive_does_nothing_on_random_data(value in 0..=u8::MAX) {
+        fn receive_returns_an_error_on_random_data(value in 0..=u8::MAX) {
             // 'E' starts a receive sequence, so we do not want it.
             prop_assume!(value != b'E');
 
             setup(|mut ercp| {
-                ercp.receive(value);
+                assert_eq!(
+                    ercp.receive(value),
+                    Err(ReceiveError::UnexpectedValue)
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn receive_does_not_advance_on_random_data(value in 0..=u8::MAX) {
+            // 'E' starts a receive sequence, so we do not want it.
+            prop_assume!(value != b'E');
+
+            setup(|mut ercp| {
+                ercp.receive(value).ok();
                 assert_eq!(ercp.state, State::Ready);
             });
         }
@@ -913,7 +942,7 @@ mod tests {
     #[test]
     fn receive_starts_init_sequence_on_e() {
         setup(|mut ercp| {
-            ercp.receive(b'E');
+            assert!(ercp.receive(b'E').is_ok());
             assert_eq!(ercp.state, State::Init(InitState::R));
         });
     }
@@ -921,18 +950,55 @@ mod tests {
     #[test]
     fn receive_advances_through_the_init_sequence() {
         setup(|mut ercp| {
-            ercp.receive(b'E');
+            assert!(ercp.receive(b'E').is_ok());
             assert_eq!(ercp.state, State::Init(InitState::R));
 
-            ercp.receive(b'R');
+            assert!(ercp.receive(b'R').is_ok());
             assert_eq!(ercp.state, State::Init(InitState::C));
 
-            ercp.receive(b'C');
+            assert!(ercp.receive(b'C').is_ok());
             assert_eq!(ercp.state, State::Init(InitState::P));
 
-            ercp.receive(b'P');
+            assert!(ercp.receive(b'P').is_ok());
             assert_eq!(ercp.state, State::Init(InitState::B));
         });
+    }
+
+    proptest! {
+        #[test]
+        fn receive_returns_an_error_on_unexpected_sequence(
+            num in 0..5,
+            value in 0..=u8::MAX,
+        ) {
+            match num {
+                0 => prop_assume!(value != b'E'),
+                1 => prop_assume!(value != b'R'),
+                2 => prop_assume!(value != b'C'),
+                3 => prop_assume!(value != b'P'),
+                4 => prop_assume!(value != b'B'),
+                _ => ()
+            }
+
+            setup(|mut ercp| {
+                if num >= 1 {
+                    ercp.receive(b'E').ok();
+                }
+                if num >= 2 {
+                    ercp.receive(b'R').ok();
+                }
+                if num >= 3 {
+                    ercp.receive(b'C').ok();
+                }
+                if num >= 4 {
+                    ercp.receive(b'P').ok();
+                }
+
+                assert_eq!(
+                    ercp.receive(value),
+                    Err(ReceiveError::UnexpectedValue)
+                );
+            });
+        }
     }
 
     proptest! {
@@ -952,19 +1018,19 @@ mod tests {
 
             setup(|mut ercp| {
                 if num >= 1 {
-                    ercp.receive(b'E');
+                    ercp.receive(b'E').ok();
                 }
                 if num >= 2 {
-                    ercp.receive(b'R');
+                    ercp.receive(b'R').ok();
                 }
                 if num >= 3 {
-                    ercp.receive(b'C');
+                    ercp.receive(b'C').ok();
                 }
                 if num >= 4 {
-                    ercp.receive(b'P');
+                    ercp.receive(b'P').ok();
                 }
 
-                ercp.receive(value);
+                ercp.receive(value).ok();
                 assert_eq!(ercp.state, State::Ready);
             });
         }
@@ -973,11 +1039,11 @@ mod tests {
     #[test]
     fn receive_waits_for_code_after_init_sequence() {
         setup(|mut ercp| {
-            ercp.receive(b'E');
-            ercp.receive(b'R');
-            ercp.receive(b'C');
-            ercp.receive(b'P');
-            ercp.receive(b'B');
+            ercp.receive(b'E').ok();
+            ercp.receive(b'R').ok();
+            ercp.receive(b'C').ok();
+            ercp.receive(b'P').ok();
+            ercp.receive(b'B').ok();
             assert_eq!(ercp.state, State::Receiving(Field::Code));
         });
     }
@@ -986,11 +1052,21 @@ mod tests {
 
     proptest! {
         #[test]
+        fn receive_at_code_stage_returns_ok(
+            mut ercp in ercp(State::Receiving(Field::Code)),
+            code in 0..=u8::MAX,
+        ) {
+            assert_eq!(ercp.receive(code), Ok(()));
+        }
+    }
+
+    proptest! {
+        #[test]
         fn receive_at_code_stage_stores_command_code(
             mut ercp in ercp(State::Receiving(Field::Code)),
             code in 0..=u8::MAX,
         ) {
-            ercp.receive(code);
+            ercp.receive(code).ok();
             assert_eq!(ercp.rx_frame.code(), code);
         }
     }
@@ -1001,7 +1077,7 @@ mod tests {
             mut ercp in ercp(State::Receiving(Field::Code)),
             code in 0..=u8::MAX,
         ) {
-            ercp.receive(code);
+            ercp.receive(code).ok();
             assert_eq!(ercp.state, State::Receiving(Field::Length));
         }
     }
@@ -1010,11 +1086,21 @@ mod tests {
 
     proptest! {
         #[test]
+        fn receive_at_length_stage_returns_ok(
+            mut ercp in ercp(State::Receiving(Field::Length)),
+            length in 0..=u8::MAX,
+        ) {
+            assert_eq!(ercp.receive(length), Ok(()));
+        }
+    }
+
+    proptest! {
+        #[test]
         fn receive_at_length_stage_stores_length(
             mut ercp in ercp(State::Receiving(Field::Length)),
             length in 0..=u8::MAX,
         ) {
-            ercp.receive(length);
+            ercp.receive(length).ok();
             assert_eq!(ercp.rx_frame.length(), length);
         }
     }
@@ -1025,7 +1111,7 @@ mod tests {
             mut ercp in ercp(State::Receiving(Field::Length)),
             length in 1..=u8::MAX,
         ) {
-            ercp.receive(length);
+            ercp.receive(length).ok();
             assert_eq!(ercp.state, State::Receiving(Field::Value));
         }
     }
@@ -1036,25 +1122,42 @@ mod tests {
             mut ercp in ercp(State::Receiving(Field::Length)),
         ) {
             let length = 0;
-            ercp.receive(length);
+            ercp.receive(length).ok();
             assert_eq!(ercp.state, State::Receiving(Field::CRC));
         }
     }
 
     proptest! {
         #[test]
-        fn receive_at_length_stage_goes_back_to_ready_if_length_is_too_long(
-            length in 96..=u8::MAX,
+        fn receive_at_length_stage_returns_an_error_if_length_is_too_long(
+            length in 2..=u8::MAX,
         ) {
             let adapter = TestAdapter::default();
-            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 95>::new(
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
                 adapter,
                 DefaultRouter
             );
 
             ercp.state = State::Receiving(Field::Length);
 
-            ercp.receive(length);
+            assert_eq!(ercp.receive(length), Err(ReceiveError::TooLong));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn receive_at_length_stage_goes_back_to_ready_if_length_is_too_long(
+            length in 2..=u8::MAX,
+        ) {
+            let adapter = TestAdapter::default();
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
+                adapter,
+                DefaultRouter
+            );
+
+            ercp.state = State::Receiving(Field::Length);
+
+            ercp.receive(length).ok();
             assert_eq!(ercp.state, State::Ready);
         }
     }
@@ -1062,10 +1165,10 @@ mod tests {
     proptest! {
         #[test]
         fn receive_at_length_stage_resets_the_rx_frame_if_length_is_too_long(
-            length in 96..=u8::MAX,
+            length in 2..=u8::MAX,
         ) {
             let adapter = TestAdapter::default();
-            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 95>::new(
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
                 adapter,
                 DefaultRouter
             );
@@ -1073,29 +1176,8 @@ mod tests {
             ercp.rx_frame.set_code(0x9D);
             ercp.state = State::Receiving(Field::Length);
 
-            ercp.receive(length);
+            ercp.receive(length).ok();
             assert_eq!(ercp.rx_frame, FrameBuffer::default());
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn receive_at_length_stage_sends_a_nack_if_length_is_too_long(
-            length in 96..=u8::MAX,
-        ) {
-            let adapter = TestAdapter::default();
-            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 95>::new(
-                adapter,
-                DefaultRouter
-            );
-
-            ercp.state = State::Receiving(Field::Length);
-
-            ercp.receive(length);
-            assert_eq!(
-                ercp.connection.adapter().test_receive(),
-                nack!(nack_reason::TOO_LONG).as_frame()
-            );
         }
     }
 
@@ -1103,14 +1185,28 @@ mod tests {
 
     proptest! {
         #[test]
+        fn receive_at_value_stage_returns_ok(
+            mut ercp in ercp(State::Receiving(Field::Length)),
+            value in vec(0..=u8::MAX, 1..=u8::MAX as usize),
+        ) {
+            ercp.receive(value.len() as u8).ok();
+
+            for &byte in value.iter() {
+                assert_eq!(ercp.receive(byte), Ok(()));
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
         fn receive_at_value_stage_stores_value(
             mut ercp in ercp(State::Receiving(Field::Length)),
             value in vec(0..=u8::MAX, 1..=u8::MAX as usize),
         ) {
-            ercp.receive(value.len() as u8);
+            ercp.receive(value.len() as u8).ok();
 
             for (i, &byte) in value.iter().enumerate() {
-                ercp.receive(byte);
+                ercp.receive(byte).ok();
                 assert_eq!(ercp.rx_frame.value()[i], byte);
             }
         }
@@ -1122,10 +1218,10 @@ mod tests {
             mut ercp in ercp(State::Receiving(Field::Length)),
             value in vec(0..=u8::MAX, 1..=u8::MAX as usize),
         ) {
-            ercp.receive(value.len() as u8);
+            ercp.receive(value.len() as u8).ok();
 
             for &byte in value.iter().take(value.len() - 1) {
-                ercp.receive(byte);
+                ercp.receive(byte).ok();
                 assert_eq!(ercp.state, State::Receiving(Field::Value));
             }
         }
@@ -1137,10 +1233,10 @@ mod tests {
             mut ercp in ercp(State::Receiving(Field::Length)),
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
-            ercp.receive(value.len() as u8);
+            ercp.receive(value.len() as u8).ok();
 
             for byte in value {
-                ercp.receive(byte);
+                ercp.receive(byte).ok();
             }
 
             assert_eq!(ercp.state, State::Receiving(Field::CRC));
@@ -1151,11 +1247,21 @@ mod tests {
 
     proptest! {
         #[test]
+        fn receive_at_crc_stage_returns_ok(
+            mut ercp in ercp(State::Receiving(Field::CRC)),
+            crc in 0..=u8::MAX,
+        ) {
+            assert_eq!(ercp.receive(crc), Ok(()));
+        }
+    }
+
+    proptest! {
+        #[test]
         fn receive_at_crc_stage_stores_crc(
             mut ercp in ercp(State::Receiving(Field::CRC)),
             crc in 0..=u8::MAX,
         ) {
-            ercp.receive(crc);
+            ercp.receive(crc).ok();
             assert_eq!(ercp.rx_frame.crc(), crc);
         }
     }
@@ -1166,7 +1272,7 @@ mod tests {
             mut ercp in ercp(State::Receiving(Field::CRC)),
             crc in 0..=u8::MAX,
         ) {
-            ercp.receive(crc);
+            ercp.receive(crc).ok();
             assert_eq!(ercp.state, State::Receiving(Field::EOT));
         }
     }
@@ -1175,23 +1281,44 @@ mod tests {
 
     proptest! {
         #[test]
+        fn receive_at_eot_stage_returns_ok_on_eot(
+            mut ercp in ercp(State::Receiving(Field::EOT)),
+        ) {
+            assert_eq!(ercp.receive(EOT), Ok(()));
+        }
+    }
+
+    proptest! {
+        #[test]
         fn receive_at_eot_stage_goes_to_complete_on_eot(
             mut ercp in ercp(State::Receiving(Field::EOT)),
         ) {
-            ercp.receive(EOT);
+            ercp.receive(EOT).ok();
             assert_eq!(ercp.state, State::Complete);
         }
     }
 
     proptest! {
         #[test]
-        fn receive_at_eot_stage_resets_on_random_value(
+        fn receive_at_eot_stage_returns_an_error_on_random_value(
             mut ercp in ercp(State::Receiving(Field::EOT)),
             not_eot in 0..=u8::MAX,
         ) {
             prop_assume!(not_eot != EOT);
 
-            ercp.receive(not_eot);
+            assert_eq!(ercp.receive(not_eot), Err(ReceiveError::NotEot));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn receive_at_eot_stage_goes_back_to_ready_on_random_value(
+            mut ercp in ercp(State::Receiving(Field::EOT)),
+            not_eot in 0..=u8::MAX,
+        ) {
+            prop_assume!(not_eot != EOT);
+
+            ercp.receive(not_eot).ok();
             assert_eq!(ercp.state, State::Ready);
         }
     }
@@ -1204,7 +1331,7 @@ mod tests {
         ) {
             prop_assume!(not_eot != EOT);
 
-            ercp.receive(not_eot);
+            ercp.receive(not_eot).ok();
             assert_eq!(ercp.rx_frame, FrameBuffer::default());
         }
     }
@@ -1213,14 +1340,34 @@ mod tests {
 
     proptest! {
         #[test]
-        fn receive_at_validating_state_does_nothing(
+        fn receive_at_complete_stage_returns_an_error(
+            mut ercp in ercp(State::Complete),
+            value in 0..=u8::MAX,
+        ) {
+            assert_eq!(ercp.receive(value), Err(ReceiveError::Overflow));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn receive_at_complete_stage_does_not_change_the_state(
+            mut ercp in ercp(State::Complete),
+            value in 0..=u8::MAX,
+        ) {
+            ercp.receive(value).ok();
+            assert_eq!(ercp.state, State::Complete);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn receive_at_complete_stage_does_not_change_the_buffer(
             mut ercp in ercp(State::Complete),
             value in 0..=u8::MAX,
         ) {
             let original_rx_frame = ercp.rx_frame.clone();
 
-            ercp.receive(value);
-            assert_eq!(ercp.state, State::Complete);
+            ercp.receive(value).ok();
             assert_eq!(ercp.rx_frame, original_rx_frame);
         }
     }
@@ -1258,6 +1405,39 @@ mod tests {
             ercp.connection.adapter().read_error = Some(());
             assert_eq!(ercp.handle_data(), Err(()));
         });
+    }
+
+    #[test]
+    fn handle_data_ignores_receive_errors() {
+        setup(|mut ercp| {
+            let frame = [b'X', b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
+            ercp.connection.adapter().test_send(&frame);
+            assert_eq!(ercp.handle_data(), Ok(()));
+            assert_eq!(ercp.state, State::Complete);
+        });
+    }
+
+    proptest! {
+        #[test]
+        fn handle_data_sends_a_nack_if_the_received_length_is_too_long(
+            code in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
+        ) {
+            let adapter = TestAdapter::default();
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
+                adapter,
+                DefaultRouter
+            );
+
+            let reply = Command::new(code, &value).unwrap();
+            ercp.connection.adapter().test_send(&reply.as_frame());
+
+            ercp.handle_data().ok();
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                nack!(nack_reason::TOO_LONG).as_frame()
+            );
+        }
     }
 
     #[test]
