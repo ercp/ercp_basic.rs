@@ -449,7 +449,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
             .send(command)
             .map_err(CommandError::IoError)?;
 
-        self.wait_for_command().map_err(CommandError::IoError)?;
+        self.wait_for_command_fallible()
+            .map_err(CommandError::IoError)?
+            .map_err(Into::into)
+            .map_err(CommandError::ReceivedFrameError)?;
 
         let reply = self
             .rx_frame
@@ -828,6 +831,25 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         }
 
         Ok(())
+    }
+
+    /// Blocks until a complete frame has been received.
+    fn wait_for_command_fallible(
+        &mut self,
+    ) -> Result<Result<(), ReceiveError>, A::Error> {
+        while !self.complete_frame_received() {
+            // TODO: Do different things depending on features.
+
+            // TODO: Only with the blocking feature.
+            if let Err(error) = self.handle_data_fallible()? {
+                return Ok(Err(error));
+            }
+
+            // TODO: WFI on Cortex-M.
+            // TODO: Timeout (idea: use a struct field)
+        }
+
+        Ok(Ok(()))
     }
 }
 
@@ -1816,28 +1838,73 @@ mod tests {
         }
     }
 
-    // TODO: Uncomment when implemented.
-    // proptest! {
-    //     #[test]
-    //     fn command_returns_an_error_when_a_too_long_reply_is_received(
-    //         code in 0..=u8::MAX,
-    //         value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
-    //     ) {
-    //         let adapter = TestAdapter::default();
-    //         let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
-    //             adapter,
-    //             DefaultRouter
-    //         );
+    proptest! {
+        #[test]
+        fn command_returns_an_error_when_a_too_long_reply_is_received(
+            code in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
+        ) {
+            let adapter = TestAdapter::default();
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
+                adapter,
+                DefaultRouter
+            );
 
-    //         let reply = Command::new(code, &value).unwrap();
-    //         ercp.connection.adapter().test_send(&reply.as_frame());
+            let reply = Command::new(code, &value).unwrap();
+            ercp.connection.adapter().test_send(&reply.as_frame());
 
-    //         assert_eq!(
-    //             ercp.command(ping!()),
-    //             Err(CommandError::FrameError(FrameError::TooLong))
-    //         );
-    //     }
-    // }
+            assert_eq!(
+                ercp.command(ping!()),
+                Err(CommandError::ReceivedFrameError(
+                    ReceivedFrameError::TooLong
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn command_returns_an_error_when_an_unexpected_init_sequence_is_received() {
+        setup(|mut ercp| {
+            ercp.connection.adapter().test_send(&[0]);
+
+            assert_eq!(
+                ercp.command(ping!()),
+                Err(CommandError::ReceivedFrameError(
+                    ReceivedFrameError::UnexpectedValue
+                ))
+            );
+        })
+    }
+
+    #[test]
+    fn command_returns_an_error_when_the_eot_is_not_proper() {
+        setup(|mut ercp| {
+            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, 0];
+            ercp.connection.adapter().test_send(&frame);
+
+            assert_eq!(
+                ercp.command(ping!()),
+                Err(CommandError::ReceivedFrameError(
+                    ReceivedFrameError::NotEot
+                ))
+            );
+        })
+    }
+
+    #[test]
+    fn command_returns_an_error_when_received_data_overflows() {
+        setup(|mut ercp| {
+            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT, 0];
+            ercp.connection.adapter().test_send(&frame);
+
+            assert_eq!(
+                ercp.command(ping!()),
+                Err(CommandError::ReceivedFrameError(
+                    ReceivedFrameError::Overflow
+                ))
+            );
+        })
+    }
 
     #[test]
     fn command_returns_an_error_when_the_peer_reports_an_invalid_crc() {
