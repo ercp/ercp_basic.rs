@@ -26,13 +26,28 @@ pub enum FrameError {
     InvalidCrc,
 }
 
+/// An error that can happen on received frames.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReceivedFrameError {
+    /// An unexpected value has been received during at the init stage.
+    UnexpectedValue,
+    /// The length is too long.
+    TooLong,
+    /// The EOT field does not contain EOT.
+    NotEot,
+    /// The received CRC does not match the computed one.
+    InvalidCrc,
+    /// Data has been received while a previous command is being processed.
+    Overflow,
+}
+
 /// A system-level error that can happen while sending / receiving a command.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CommandError<IoError> {
     /// An error has occured while writing or reading data.
     IoError(IoError),
     /// A frame has been received, but it is erroneous.
-    ReceivedFrameError(FrameError),
+    ReceivedFrameError(ReceivedFrameError),
     /// The peer has reported an error with the frame it has received.
     SentFrameError(FrameError),
 }
@@ -107,6 +122,28 @@ impl From<NewCommandError> for FrameError {
     fn from(error: NewCommandError) -> Self {
         match error {
             NewCommandError::TooLong => FrameError::TooLong,
+        }
+    }
+}
+
+impl From<FrameError> for ReceivedFrameError {
+    fn from(error: FrameError) -> Self {
+        match error {
+            FrameError::TooLong => ReceivedFrameError::TooLong,
+            FrameError::InvalidCrc => ReceivedFrameError::InvalidCrc,
+        }
+    }
+}
+
+impl From<ReceiveError> for ReceivedFrameError {
+    fn from(error: ReceiveError) -> Self {
+        match error {
+            ReceiveError::UnexpectedValue => {
+                ReceivedFrameError::UnexpectedValue
+            }
+            ReceiveError::TooLong => ReceivedFrameError::TooLong,
+            ReceiveError::NotEot => ReceivedFrameError::NotEot,
+            ReceiveError::Overflow => ReceivedFrameError::Overflow,
         }
     }
 }

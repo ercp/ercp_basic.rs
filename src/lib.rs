@@ -454,6 +454,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         let reply = self
             .rx_frame
             .check_frame()
+            .map_err(Into::into)
             .map_err(CommandError::ReceivedFrameError)?;
 
         // Check for any frame-level error notification from the peer.
@@ -1807,7 +1808,9 @@ mod tests {
 
                 assert_eq!(
                     ercp.command(ping!()),
-                    Err(CommandError::ReceivedFrameError(FrameError::InvalidCrc))
+                    Err(CommandError::ReceivedFrameError(
+                        ReceivedFrameError::InvalidCrc
+                    ))
                 );
             });
         }
