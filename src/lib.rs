@@ -188,6 +188,59 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
         Ok(())
     }
 
+    /// Handles incoming data, returning an error on incorrect input.
+    ///
+    /// This function behaves like [`ErcpBasic::handle_data`], but stops when
+    /// the receive state machine encounters an error, instead of ignoring it.
+    ///
+    /// Usually, you don’t need such detail, except if you want to log incorrect
+    /// inputs in your system.
+    ///
+    /// # Errors
+    ///
+    /// This function returns two levels of errors:
+    ///
+    /// * errors from the connection adapter, in case of read or write error,
+    /// * errors from the receive state machine.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
+    /// #
+    /// # struct DummyAdapter;
+    /// #
+    /// # impl Adapter for DummyAdapter {
+    /// #    type Error = ();
+    /// #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
+    /// # }
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
+    /// // You should call handle_data_fallible in a loop to handle the errors,
+    /// // yet avoiding to drop some data. If it returns Ok(Ok(())), that means
+    /// // there is no more data to handle.
+    /// while let Ok(Err(error)) = ercp.handle_data_fallible() {
+    ///     // Do something with `error`.
+    /// }
+    /// ```
+    pub fn handle_data_fallible(
+        &mut self,
+    ) -> Result<Result<(), ReceiveError>, A::Error> {
+        while let Some(byte) = self.connection.read()? {
+            match self.receive(byte) {
+                Ok(()) => (),
+                Err(ReceiveError::TooLong) => {
+                    self.notify(nack!(nack_reason::TOO_LONG))?;
+                    return Ok(Err(ReceiveError::TooLong));
+                }
+                Err(error) => return Ok(Err(error)),
+            }
+        }
+
+        Ok(Ok(()))
+    }
+
     /// Returns wether a complete frame has been received.
     ///
     /// If it returns `true`, you should then call `process`.
@@ -1433,6 +1486,96 @@ mod tests {
             ercp.connection.adapter().test_send(&reply.as_frame());
 
             ercp.handle_data().ok();
+            assert_eq!(
+                ercp.connection.adapter().test_receive(),
+                nack!(nack_reason::TOO_LONG).as_frame()
+            );
+        }
+    }
+
+    #[test]
+    fn handle_data_fallible_returns_ok() {
+        setup(|mut ercp| {
+            assert_eq!(ercp.handle_data_fallible(), Ok(Ok(())));
+        });
+    }
+
+    #[test]
+    fn handle_data_fallible_processes_incoming_data() {
+        setup(|mut ercp| {
+            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
+            ercp.connection.adapter().test_send(&frame);
+            ercp.handle_data_fallible().ok();
+            assert_eq!(ercp.state, State::Complete);
+        });
+    }
+
+    #[test]
+    fn handle_data_fallible_does_nothing_on_no_data() {
+        setup(|mut ercp| {
+            ercp.handle_data_fallible().ok();
+            assert_eq!(ercp.state, State::Ready);
+        });
+    }
+
+    #[test]
+    fn handle_data_fallible_returns_an_error_on_read_errors() {
+        setup(|mut ercp| {
+            ercp.connection.adapter().read_error = Some(());
+            assert_eq!(ercp.handle_data_fallible(), Err(()));
+        });
+    }
+
+    #[test]
+    fn handle_data_fallible_returns_an_error_on_receive_errors() {
+        setup(|mut ercp| {
+            let frame = [b'X', b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
+            ercp.connection.adapter().test_send(&frame);
+            assert_eq!(
+                ercp.handle_data_fallible(),
+                Ok(Err(ReceiveError::UnexpectedValue))
+            )
+        });
+    }
+
+    proptest! {
+        #[test]
+        fn handle_data_fallible_returns_a_status_if_the_received_length_is_too_long(
+            code in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
+        ) {
+            let adapter = TestAdapter::default();
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
+                adapter,
+                DefaultRouter
+            );
+
+            let reply = Command::new(code, &value).unwrap();
+            ercp.connection.adapter().test_send(&reply.as_frame());
+
+            assert_eq!(
+                ercp.handle_data_fallible(),
+                Ok(Err(ReceiveError::TooLong))
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn handle_data_fallible_sends_a_nack_if_the_received_length_is_too_long(
+            code in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
+        ) {
+            let adapter = TestAdapter::default();
+            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
+                adapter,
+                DefaultRouter
+            );
+
+            let reply = Command::new(code, &value).unwrap();
+            ercp.connection.adapter().test_send(&reply.as_frame());
+
+            ercp.handle_data_fallible().ok();
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 nack!(nack_reason::TOO_LONG).as_frame()
