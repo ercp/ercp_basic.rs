@@ -105,6 +105,6 @@ Before contributing to this project, please read the
 
 # License
 
-Copyright © 2021 Jean-Philippe Cugnet
+Copyright © 2021-2022 Jean-Philippe Cugnet
 
-This project is licensed under the [MIT license](LICENSE).
+This project is licensed under the [Apache-2.0 license](LICENSE).
