@@ -2,8 +2,9 @@
 
 #![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![deny(unsafe_code)]
 #![deny(missing_docs)]
+#![deny(unsafe_code)]
+#![deny(unused_must_use)]
 
 pub mod adapter;
 pub mod command;
