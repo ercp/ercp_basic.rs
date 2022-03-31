@@ -67,7 +67,8 @@ use frame_buffer::{FrameBuffer, SetLengthError};
 /// * a call to [`ErcpBasic::process`] to process incoming commands when a
 ///   complete frame is available, typically in a dedicated task / thread.
 #[derive(Debug)]
-pub struct ErcpBasic<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize> {
+pub struct ErcpBasic<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize = 255>
+{
     state: State,
     rx_frame: FrameBuffer<MAX_LEN>,
     connection: Connection<A>,
@@ -148,8 +149,9 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// let adapter = SomeAdapter::new(/* parameters omitted */);
     ///
     /// // Instantiate an ERCP Basic driver using the default router. Here we
-    /// // need to partially annotate the type to provide the MAX_LEN parameter.
-    /// let ercp: ErcpBasic<_, _, 255> = ErcpBasic::new(adapter, DefaultRouter);
+    /// // need to annotate the type, because the compiler is not (yet) able to
+    /// // infer it when it contains a default const generic.
+    /// let ercp: ErcpBasic<_, _> = ErcpBasic::new(adapter, DefaultRouter);
     /// ```
     pub fn new(adapter: A, router: R) -> Self {
         Self {
@@ -216,7 +218,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
-    /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
+    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
     /// // You should call handle_data_fallible in a loop to handle the errors,
     /// // yet avoiding to drop some data. If it returns Ok(Ok(())), that means
     /// // there is no more data to handle.
@@ -274,7 +276,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
-    /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
+    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
     /// if let Err(e) = ercp.process(&mut ()) {
     ///     // Do something with the error.
     /// }
@@ -338,7 +340,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
-    /// # let mut ercp = ErcpBasic::<_, _, 255>::new(DummyAdapter, DefaultRouter);
+    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
     /// loop {
     ///     if let Err(e) = ercp.accept_command(&mut ()) {
     ///         // If the connection adapter has encountered an error. You can
@@ -389,7 +391,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ///     // The #[command] attribute uses this fact, but you can still use
     ///     // a different name if you want. In this case, you must use
     ///     // #[command(self.field_name)] instead.
-    ///     ercp: ErcpBasic<A, DefaultRouter, 255>,
+    ///     ercp: ErcpBasic<A, DefaultRouter>,
     /// }
     ///
     /// // When a command can return an error, you should create a type for
@@ -402,7 +404,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     /// const SOME_COMMAND_REPLY: u8 = 0x43;
     ///
     /// impl<A: Adapter> MyDevice<A> {
-    ///     fn new(ercp: ErcpBasic<A, DefaultRouter, 255>) -> Self {
+    ///     fn new(ercp: ErcpBasic<A, DefaultRouter>) -> Self {
     ///         Self { ercp }
     ///     }
     ///
@@ -901,11 +903,9 @@ mod tests {
         }
     }
 
-    const MAX_LEN: usize = u8::MAX as usize;
-
     ////////////////////////////// Test setup //////////////////////////////
 
-    fn setup(test: impl Fn(ErcpBasic<TestAdapter, TestRouter, MAX_LEN>)) {
+    fn setup(test: impl Fn(ErcpBasic<TestAdapter, TestRouter>)) {
         let adapter = TestAdapter::default();
         let router = TestRouter::default();
         let ercp = ErcpBasic::new(adapter, router);
@@ -916,8 +916,7 @@ mod tests {
 
     fn ercp(
         state: State,
-    ) -> impl Strategy<Value = ErcpBasic<TestAdapter, TestRouter, MAX_LEN>>
-    {
+    ) -> impl Strategy<Value = ErcpBasic<TestAdapter, TestRouter>> {
         (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
             move |(code, value)| {
                 let adapter = TestAdapter::default();
