@@ -265,7 +265,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ) -> Result<(), A::Error> {
         // TODO: Use self.receiver.next_command().
         if self.complete_frame_received() {
-            match self.receiver.rx_frame.check_frame() {
+            match self.receiver.rx_frame().check_frame() {
                 Ok(command) => {
                     if let Some(reply) = self.router.route(command, context) {
                         self.connection.send(reply)?;
@@ -427,7 +427,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
 
         let reply = self
             .receiver
-            .rx_frame
+            .rx_frame()
             .check_frame()
             .map_err(Into::into)
             .map_err(CommandError::ReceivedFrameError)?;
@@ -825,7 +825,7 @@ mod tests {
             let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
             ercp.connection.adapter().test_send(&frame);
             ercp.handle_data().ok();
-            assert_eq!(ercp.receiver.state, State::Complete);
+            assert_eq!(ercp.receiver.state(), State::Complete);
         });
     }
 
@@ -833,7 +833,7 @@ mod tests {
     fn handle_data_does_nothing_on_no_data() {
         setup(|mut ercp| {
             ercp.handle_data().ok();
-            assert_eq!(ercp.receiver.state, State::Ready);
+            assert_eq!(ercp.receiver.state(), State::Ready);
         });
     }
 
@@ -851,7 +851,7 @@ mod tests {
             let frame = [b'X', b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
             ercp.connection.adapter().test_send(&frame);
             assert_eq!(ercp.handle_data(), Ok(()));
-            assert_eq!(ercp.receiver.state, State::Complete);
+            assert_eq!(ercp.receiver.state(), State::Complete);
         });
     }
 
@@ -891,7 +891,7 @@ mod tests {
             let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
             ercp.connection.adapter().test_send(&frame);
             ercp.handle_data_fallible().ok();
-            assert_eq!(ercp.receiver.state, State::Complete);
+            assert_eq!(ercp.receiver.state(), State::Complete);
         });
     }
 
@@ -899,7 +899,7 @@ mod tests {
     fn handle_data_fallible_does_nothing_on_no_data() {
         setup(|mut ercp| {
             ercp.handle_data_fallible().ok();
-            assert_eq!(ercp.receiver.state, State::Ready);
+            assert_eq!(ercp.receiver.state(), State::Ready);
         });
     }
 
@@ -971,7 +971,7 @@ mod tests {
     #[test]
     fn complete_frame_received_returns_true_in_complete_state() {
         setup(|mut ercp| {
-            ercp.receiver.state = State::Complete;
+            ercp.receiver.set_state(State::Complete);
             assert!(ercp.complete_frame_received());
         });
     }
@@ -1008,7 +1008,7 @@ mod tests {
             mut ercp in ercp(State::Complete),
         ) {
             let command: OwnedCommand =
-                ercp.receiver.rx_frame.check_frame().unwrap().into();
+                ercp.receiver.rx_frame().check_frame().unwrap().into();
 
             ercp.process(&mut ()).ok();
 
@@ -1062,8 +1062,8 @@ mod tests {
             mut ercp in ercp(State::Complete),
             bad_crc in 0..=u8::MAX,
         ) {
-            prop_assume!(bad_crc != ercp.receiver.rx_frame.crc());
-            ercp.receiver.rx_frame.set_crc(bad_crc);
+            prop_assume!(bad_crc != ercp.receiver.rx_frame().crc());
+            ercp.receiver.rx_frame_mut().set_crc(bad_crc);
 
             ercp.process(&mut ()).ok();
             assert_eq!(
@@ -1079,7 +1079,7 @@ mod tests {
             mut ercp in ercp(State::Complete),
         ) {
             ercp.process(&mut ()).ok();
-            assert_eq!(ercp.receiver.state, State::Ready);
+            assert_eq!(ercp.receiver.state(), State::Ready);
         }
     }
 
@@ -1089,7 +1089,7 @@ mod tests {
             mut ercp in ercp(State::Complete),
         ) {
             ercp.process(&mut ()).ok();
-            assert_eq!(ercp.receiver.rx_frame, FrameBuffer::default());
+            assert_eq!(ercp.receiver.rx_frame(), &FrameBuffer::default());
         }
     }
 
@@ -1114,7 +1114,7 @@ mod tests {
             ercp.connection.adapter().write_error = Some(());
             ercp.process(&mut ()).err();
 
-            assert_eq!(ercp.receiver.rx_frame, FrameBuffer::default());
+            assert_eq!(ercp.receiver.rx_frame(), &FrameBuffer::default());
         }
     }
 
@@ -1383,7 +1383,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.ping().ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -1456,7 +1456,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.reset().ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -1538,7 +1538,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.protocol().ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -1666,7 +1666,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.version(component, &mut []).ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -1756,7 +1756,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.version_as_string(component).ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -1833,7 +1833,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.max_length().ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -1950,7 +1950,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.description(&mut []).ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -2029,7 +2029,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.description_as_string().ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }
@@ -2130,7 +2130,7 @@ mod tests {
                 ercp.connection.adapter().test_send(&reply.as_frame());
 
                 ercp.sync_log(&message).ok();
-                assert_eq!(ercp.receiver.state, State::Ready);
+                assert_eq!(ercp.receiver.state(), State::Ready);
             });
         }
     }

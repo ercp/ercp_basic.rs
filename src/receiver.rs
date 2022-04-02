@@ -26,9 +26,8 @@ use frame_buffer::{FrameBuffer, SetLengthError};
 /// An ERCP Basic receiver.
 #[derive(Debug)]
 pub(crate) struct Receiver<const MAX_LEN: usize> {
-    // TODO: Make this private and provide a clear interface.
-    pub(crate) state: State,
-    pub(crate) rx_frame: FrameBuffer<MAX_LEN>,
+    state: State,
+    rx_frame: FrameBuffer<MAX_LEN>,
 }
 
 // TODO: Make these internal state machine enums private.
@@ -86,6 +85,29 @@ impl<const MAX_LEN: usize> Receiver<MAX_LEN> {
             state: State::Ready,
             rx_frame: FrameBuffer::new(),
         }
+    }
+
+    // TODO: Remove when the interface is clearly defined.
+    #[cfg(test)]
+    pub fn state(&self) -> State {
+        self.state
+    }
+
+    // TODO: Remove when the interface is clearly defined.
+    #[cfg(test)]
+    pub fn set_state(&mut self, state: State) {
+        self.state = state
+    }
+
+    // TODO: Remove when the interface is clearly defined.
+    pub fn rx_frame(&self) -> &FrameBuffer<MAX_LEN> {
+        &self.rx_frame
+    }
+
+    // TODO: Remove when the interface is clearly defined.
+    #[cfg(test)]
+    pub fn rx_frame_mut(&mut self) -> &mut FrameBuffer<MAX_LEN> {
+        &mut self.rx_frame
     }
 
     /// Receives a byte.
