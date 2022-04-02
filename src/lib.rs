@@ -43,7 +43,7 @@ use command::{
     NACK, PROTOCOL_REPLY, VERSION_REPLY,
 };
 use connection::Connection;
-use receiver::Receiver;
+use receiver::{Receiver, StandardReceiver};
 
 /// An ERCP Basic driver.
 ///
@@ -82,10 +82,14 @@ use receiver::Receiver;
 /// * a call to [`ErcpBasic::process`] to process incoming commands when a
 ///   complete frame is available, typically in a dedicated task / thread.
 #[derive(Debug)]
-pub struct ErcpBasic<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize = 255>
-{
+pub struct ErcpBasic<
+    A: Adapter,
+    R: Router<MAX_LEN>,
+    const MAX_LEN: usize = 255,
+    Re: Receiver<MAX_LEN> = StandardReceiver<MAX_LEN>,
+> {
     // TODO: Mock the receiver in tests to abstract, and remove unneeded tests.
-    receiver: Receiver<MAX_LEN>,
+    receiver: Re,
     connection: Connection<A>,
     router: R,
 }
@@ -741,7 +745,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
 mod tests {
     use super::*;
     use connection::tests::TestAdapter;
-    use receiver::{frame_buffer::FrameBuffer, State};
+    use receiver::{frame_buffer::FrameBuffer, standard_receiver::State};
     use router::DefaultRouter;
 
     use proptest::collection::vec;
@@ -798,7 +802,7 @@ mod tests {
 
     prop_compose! {
         fn ercp(state: State)
-               (receiver in receiver::tests::receiver(state))
+               (receiver in receiver::standard_receiver::tests::receiver(state))
                -> ErcpBasic<TestAdapter, TestRouter>
         {
             let adapter = TestAdapter::default();

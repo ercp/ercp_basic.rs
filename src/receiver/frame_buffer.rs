@@ -22,7 +22,7 @@ use crate::command::Command;
 use crate::error::FrameError;
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct FrameBuffer<const MAX_LEN: usize> {
+pub struct FrameBuffer<const MAX_LEN: usize> {
     code: u8,
     length: u8,
     value: Vec<u8, MAX_LEN>,
