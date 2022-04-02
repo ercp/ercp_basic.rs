@@ -20,7 +20,10 @@
 
 pub mod frame_buffer;
 
-use crate::{error::ReceiveError, EOT};
+use crate::{
+    error::{FrameError, ReceiveError},
+    Command, EOT,
+};
 use frame_buffer::{FrameBuffer, SetLengthError};
 
 /// An ERCP Basic receiver.
@@ -100,6 +103,7 @@ impl<const MAX_LEN: usize> Receiver<MAX_LEN> {
     }
 
     // TODO: Remove when the interface is clearly defined.
+    #[cfg(test)]
     pub fn rx_frame(&self) -> &FrameBuffer<MAX_LEN> {
         &self.rx_frame
     }
@@ -201,6 +205,11 @@ impl<const MAX_LEN: usize> Receiver<MAX_LEN> {
     /// If it returns `true`, you should then call `process`.
     pub fn complete_frame_received(&self) -> bool {
         self.state == State::Complete
+    }
+
+    /// Checks the received frame.
+    pub fn check_frame(&self) -> Result<Command, FrameError> {
+        self.rx_frame.check_frame()
     }
 
     /// Resets the receive state machine and clears the frame buffer.

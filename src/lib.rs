@@ -265,7 +265,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
     ) -> Result<(), A::Error> {
         // TODO: Use self.receiver.next_command().
         if self.complete_frame_received() {
-            match self.receiver.rx_frame().check_frame() {
+            match self.receiver.check_frame() {
                 Ok(command) => {
                     if let Some(reply) = self.router.route(command, context) {
                         self.connection.send(reply)?;
@@ -427,7 +427,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
 
         let reply = self
             .receiver
-            .rx_frame()
             .check_frame()
             .map_err(Into::into)
             .map_err(CommandError::ReceivedFrameError)?;
@@ -1008,7 +1007,7 @@ mod tests {
             mut ercp in ercp(State::Complete),
         ) {
             let command: OwnedCommand =
-                ercp.receiver.rx_frame().check_frame().unwrap().into();
+                ercp.receiver.check_frame().unwrap().into();
 
             ercp.process(&mut ()).ok();
 
