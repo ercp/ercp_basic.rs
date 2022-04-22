@@ -86,7 +86,7 @@ pub struct ErcpBasic<
     A: Adapter,
     R: Router<MAX_LEN>,
     const MAX_LEN: usize = 255,
-    Re: Receiver<MAX_LEN> = StandardReceiver<MAX_LEN>,
+    Re: Receiver = StandardReceiver<MAX_LEN>,
 > {
     receiver: Re,
     connection: Connection<A>,
@@ -96,12 +96,8 @@ pub struct ErcpBasic<
 // TODO: Put elsewhere.
 const EOT: u8 = 0x04;
 
-impl<
-        A: Adapter,
-        R: Router<MAX_LEN>,
-        const MAX_LEN: usize,
-        Re: Receiver<MAX_LEN>,
-    > ErcpBasic<A, R, MAX_LEN, Re>
+impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
+    ErcpBasic<A, R, MAX_LEN, Re>
 {
     /// Instantiates an ERCP Basic driver.
     ///
@@ -790,7 +786,7 @@ mod tests {
         value: Vec<u8>,
     }
 
-    impl<const MAX_LEN: usize> Receiver<MAX_LEN> for TestReceiver {
+    impl Receiver for TestReceiver {
         fn new() -> Self {
             Self {
                 receive: ReceiveInfo::default(),
@@ -800,28 +796,6 @@ mod tests {
                 },
                 reset_state: ResetStateInfo::default(),
             }
-        }
-
-        fn state(&self) -> receiver::standard_receiver::State {
-            // Will be removed after the test refactoring.
-            panic!()
-        }
-
-        fn set_state(&mut self, _state: receiver::standard_receiver::State) {
-            // Will be removed after the test refactoring.
-            panic!()
-        }
-
-        fn rx_frame(&self) -> &receiver::frame_buffer::FrameBuffer<MAX_LEN> {
-            // Will be removed after the test refactoring.
-            panic!()
-        }
-
-        fn rx_frame_mut(
-            &mut self,
-        ) -> &mut receiver::frame_buffer::FrameBuffer<MAX_LEN> {
-            // Will be removed after the test refactoring.
-            panic!()
         }
 
         fn receive(&mut self, byte: u8) -> Result<(), ReceiveError> {

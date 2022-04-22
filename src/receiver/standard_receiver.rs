@@ -28,10 +28,8 @@ pub struct StandardReceiver<const MAX_LEN: usize> {
     rx_frame: FrameBuffer<MAX_LEN>,
 }
 
-// TODO: Make these internal state machine enums private.
-
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum State {
+enum State {
     Ready,
     Init(InitState),
     Receiving(Field),
@@ -39,7 +37,7 @@ pub enum State {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum InitState {
+enum InitState {
     R,
     C,
     P,
@@ -47,7 +45,7 @@ pub enum InitState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Field {
+enum Field {
     Code,
     Length,
     Value,
@@ -56,8 +54,7 @@ pub enum Field {
 }
 
 impl InitState {
-    // TODO: Make this private.
-    pub const fn next_state(&self) -> State {
+    const fn next_state(&self) -> State {
         match self {
             InitState::R => State::Init(InitState::C),
             InitState::C => State::Init(InitState::P),
@@ -76,36 +73,12 @@ impl InitState {
     }
 }
 
-impl<const MAX_LEN: usize> Receiver<MAX_LEN> for StandardReceiver<MAX_LEN> {
+impl<const MAX_LEN: usize> Receiver for StandardReceiver<MAX_LEN> {
     fn new() -> Self {
         Self {
             state: State::Ready,
             rx_frame: FrameBuffer::new(),
         }
-    }
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn state(&self) -> State {
-        self.state
-    }
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn set_state(&mut self, state: State) {
-        self.state = state
-    }
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn rx_frame(&self) -> &FrameBuffer<MAX_LEN> {
-        &self.rx_frame
-    }
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn rx_frame_mut(&mut self) -> &mut FrameBuffer<MAX_LEN> {
-        &mut self.rx_frame
     }
 
     fn receive(&mut self, byte: u8) -> Result<(), ReceiveError> {
@@ -218,7 +191,7 @@ pub mod tests {
     /////////////////////////////// Strategy ///////////////////////////////
 
     prop_compose! {
-        pub fn receiver(
+        fn receiver(
             state: State
         ) (
             code in 0..=u8::MAX,

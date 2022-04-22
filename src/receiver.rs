@@ -18,9 +18,9 @@
 //!
 //! The receiver is the object that handles incoming data and parses it.
 
-// TODO: Make private.
-pub mod frame_buffer;
 pub mod standard_receiver;
+
+mod frame_buffer;
 
 pub use standard_receiver::StandardReceiver;
 
@@ -30,26 +30,9 @@ use crate::{
 };
 
 /// An ERCP Basic receiver.
-// TODO: Remove the MAX_LEN parameter when the interface has been cleaned.
-pub trait Receiver<const MAX_LEN: usize> {
+pub trait Receiver {
     /// Creates a new receiver.
     fn new() -> Self;
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn state(&self) -> standard_receiver::State;
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn set_state(&mut self, state: standard_receiver::State);
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn rx_frame(&self) -> &frame_buffer::FrameBuffer<MAX_LEN>;
-
-    // TODO: Remove when the interface is clearly defined.
-    #[cfg(test)]
-    fn rx_frame_mut(&mut self) -> &mut frame_buffer::FrameBuffer<MAX_LEN>;
 
     /// Receives a byte.
     fn receive(&mut self, byte: u8) -> Result<(), ReceiveError>;
@@ -62,6 +45,7 @@ pub trait Receiver<const MAX_LEN: usize> {
     /// Checks the received frame.
     fn check_frame(&self) -> Result<Command, FrameError>;
 
+    // IDEA: Rename to reset.
     /// Resets the receive state machine and clears the frame buffer.
     fn reset_state(&mut self);
 }
