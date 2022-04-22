@@ -88,7 +88,6 @@ pub struct ErcpBasic<
     const MAX_LEN: usize = 255,
     Re: Receiver<MAX_LEN> = StandardReceiver<MAX_LEN>,
 > {
-    // TODO: Mock the receiver in tests to abstract, and remove unneeded tests.
     receiver: Re,
     connection: Connection<A>,
     router: R,
@@ -749,11 +748,34 @@ impl<
 mod tests {
     use super::*;
     use connection::tests::TestAdapter;
-    use receiver::{frame_buffer::FrameBuffer, standard_receiver::State};
-    use router::DefaultRouter;
 
     use proptest::collection::vec;
     use proptest::prelude::*;
+
+    #[derive(Debug)]
+    struct TestReceiver {
+        receive: ReceiveInfo,
+        complete_frame_received: bool,
+        check_frame: CheckFrameInfo,
+        reset_state: ResetStateInfo,
+    }
+
+    #[derive(Debug, Default)]
+    struct ReceiveInfo {
+        call_count: usize,
+        data: Vec<u8>,
+        results: Option<Vec<Result<(), ReceiveError>>>,
+    }
+
+    #[derive(Debug)]
+    struct CheckFrameInfo {
+        result: Result<OwnedCommand, FrameError>,
+    }
+
+    #[derive(Debug, Default)]
+    struct ResetStateInfo {
+        call_count: usize,
+    }
 
     #[derive(Debug, Default)]
     struct TestRouter {
@@ -761,10 +783,76 @@ mod tests {
         reply: Option<OwnedCommand>,
     }
 
-    #[derive(Debug, PartialEq)]
+    // IDEA: Try to remove the need for owned commands.
+    #[derive(Debug, Default, Clone, PartialEq)]
     struct OwnedCommand {
         code: u8,
         value: Vec<u8>,
+    }
+
+    impl<const MAX_LEN: usize> Receiver<MAX_LEN> for TestReceiver {
+        fn new() -> Self {
+            Self {
+                receive: ReceiveInfo::default(),
+                complete_frame_received: false,
+                check_frame: CheckFrameInfo {
+                    result: Err(FrameError::InvalidCrc),
+                },
+                reset_state: ResetStateInfo::default(),
+            }
+        }
+
+        fn state(&self) -> receiver::standard_receiver::State {
+            // Will be removed after the test refactoring.
+            panic!()
+        }
+
+        fn set_state(&mut self, _state: receiver::standard_receiver::State) {
+            // Will be removed after the test refactoring.
+            panic!()
+        }
+
+        fn rx_frame(&self) -> &receiver::frame_buffer::FrameBuffer<MAX_LEN> {
+            // Will be removed after the test refactoring.
+            panic!()
+        }
+
+        fn rx_frame_mut(
+            &mut self,
+        ) -> &mut receiver::frame_buffer::FrameBuffer<MAX_LEN> {
+            // Will be removed after the test refactoring.
+            panic!()
+        }
+
+        fn receive(&mut self, byte: u8) -> Result<(), ReceiveError> {
+            self.receive.call_count += 1;
+            self.receive.data.push(byte);
+
+            match &mut self.receive.results {
+                None => Ok(()),
+                Some(results) => results
+                    .pop()
+                    .expect("receive has been called more than expected"),
+            }
+        }
+
+        fn complete_frame_received(&self) -> bool {
+            self.complete_frame_received
+        }
+
+        fn check_frame(&self) -> Result<Command, FrameError> {
+            self.check_frame
+                .result
+                .as_ref()
+                .map(|command| {
+                    Command::new(command.code, &command.value).unwrap()
+                })
+                .map_err(|&e| e)
+        }
+
+        fn reset_state(&mut self) {
+            self.reset_state.call_count += 1;
+        }
     }
 
     impl<const MAX_LEN: usize> Router<MAX_LEN> for TestRouter {
@@ -787,6 +875,15 @@ mod tests {
         }
     }
 
+    impl<'a> From<&Command<'a>> for OwnedCommand {
+        fn from(command: &Command<'a>) -> Self {
+            Self {
+                code: command.code(),
+                value: command.value().into(),
+            }
+        }
+    }
+
     impl<'a> PartialEq<Command<'a>> for OwnedCommand {
         fn eq(&self, other: &Command) -> bool {
             self.code == other.code() && self.value == other.value()
@@ -795,26 +892,13 @@ mod tests {
 
     ////////////////////////////// Test setup //////////////////////////////
 
-    fn setup(test: impl Fn(ErcpBasic<TestAdapter, TestRouter>)) {
+    fn setup(
+        test: impl Fn(ErcpBasic<TestAdapter, TestRouter, 255, TestReceiver>),
+    ) {
         let adapter = TestAdapter::default();
         let router = TestRouter::default();
         let ercp = ErcpBasic::new(adapter, router);
         test(ercp);
-    }
-
-    /////////////////////////////// Strategy ///////////////////////////////
-
-    prop_compose! {
-        fn ercp(state: State)
-               (receiver in receiver::standard_receiver::tests::receiver(state))
-               -> ErcpBasic<TestAdapter, TestRouter>
-        {
-            let adapter = TestAdapter::default();
-            let router = TestRouter::default();
-            let mut ercp = ErcpBasic::new(adapter, router);
-            ercp.receiver = receiver;
-            ercp
-        }
     }
 
     ////////////////////////////// Data input //////////////////////////////
@@ -826,21 +910,37 @@ mod tests {
         });
     }
 
-    #[test]
-    fn handle_data_processes_incoming_data() {
-        setup(|mut ercp| {
-            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
-            ercp.connection.adapter().test_send(&frame);
-            ercp.handle_data().ok();
-            assert_eq!(ercp.receiver.state(), State::Complete);
-        });
+    proptest! {
+        #[test]
+        fn handle_data_calls_receive_while_there_is_data_to_handle(
+            frame in vec(0..=u8::MAX, 0..=1000),
+        ) {
+            setup(|mut ercp| {
+                ercp.connection.adapter().test_send(&frame);
+                ercp.handle_data().ok();
+                assert_eq!(ercp.receiver.receive.call_count, frame.len());
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn handle_data_calls_receive_with_bytes_from_the_frame(
+            frame in vec(0..=u8::MAX, 0..=1000),
+        ) {
+            setup(|mut ercp| {
+                ercp.connection.adapter().test_send(&frame);
+                ercp.handle_data().ok();
+                assert_eq!(ercp.receiver.receive.data, frame);
+            });
+        }
     }
 
     #[test]
     fn handle_data_does_nothing_on_no_data() {
         setup(|mut ercp| {
             ercp.handle_data().ok();
-            assert_eq!(ercp.receiver.state(), State::Ready);
+            assert_eq!(ercp.receiver.receive.call_count, 0);
         });
     }
 
@@ -855,34 +955,35 @@ mod tests {
     #[test]
     fn handle_data_ignores_receive_errors() {
         setup(|mut ercp| {
-            let frame = [b'X', b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
+            let frame = [0; 4];
+            let errors = vec![
+                Err(ReceiveError::UnexpectedValue),
+                Err(ReceiveError::TooLong),
+                Err(ReceiveError::NotEot),
+                Err(ReceiveError::Overflow),
+            ];
+
             ercp.connection.adapter().test_send(&frame);
+            ercp.receiver.receive.results = Some(errors);
+
             assert_eq!(ercp.handle_data(), Ok(()));
-            assert_eq!(ercp.receiver.state(), State::Complete);
+            assert_eq!(ercp.receiver.receive.data, frame);
         });
     }
 
-    proptest! {
-        #[test]
-        fn handle_data_sends_a_nack_if_the_received_length_is_too_long(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
-        ) {
-            let adapter = TestAdapter::default();
-            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
-                adapter,
-                DefaultRouter
-            );
-
-            let reply = Command::new(code, &value).unwrap();
-            ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn handle_data_sends_a_nack_if_the_receiver_reports_a_too_long_length() {
+        setup(|mut ercp| {
+            ercp.connection.adapter().test_send(&[0]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::TooLong)]);
 
             ercp.handle_data().ok();
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 nack!(nack_reason::TOO_LONG).as_frame()
             );
-        }
+        });
     }
 
     #[test]
@@ -892,21 +993,37 @@ mod tests {
         });
     }
 
-    #[test]
-    fn handle_data_fallible_processes_incoming_data() {
-        setup(|mut ercp| {
-            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
-            ercp.connection.adapter().test_send(&frame);
-            ercp.handle_data_fallible().ok();
-            assert_eq!(ercp.receiver.state(), State::Complete);
-        });
+    proptest! {
+        #[test]
+        fn handle_data_fallible_calls_receive_while_there_is_data_to_handle(
+            frame in vec(0..=u8::MAX, 0..=1000),
+        ) {
+            setup(|mut ercp| {
+                ercp.connection.adapter().test_send(&frame);
+                ercp.handle_data_fallible().ok();
+                assert_eq!(ercp.receiver.receive.call_count, frame.len());
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn handle_data_fallible_calls_receive_with_bytes_from_the_frame(
+            frame in vec(0..=u8::MAX, 0..=1000),
+        ) {
+            setup(|mut ercp| {
+                ercp.connection.adapter().test_send(&frame);
+                ercp.handle_data_fallible().ok();
+                assert_eq!(ercp.receiver.receive.data, frame);
+            });
+        }
     }
 
     #[test]
     fn handle_data_fallible_does_nothing_on_no_data() {
         setup(|mut ercp| {
             ercp.handle_data_fallible().ok();
-            assert_eq!(ercp.receiver.state(), State::Ready);
+            assert_eq!(ercp.receiver.receive.call_count, 0);
         });
     }
 
@@ -921,73 +1038,70 @@ mod tests {
     #[test]
     fn handle_data_fallible_returns_an_error_on_receive_errors() {
         setup(|mut ercp| {
-            let frame = [b'X', b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT];
-            ercp.connection.adapter().test_send(&frame);
+            ercp.connection.adapter().test_send(&[0]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::UnexpectedValue)]);
+
             assert_eq!(
                 ercp.handle_data_fallible(),
                 Ok(Err(ReceiveError::UnexpectedValue))
-            )
+            );
         });
     }
 
-    proptest! {
-        #[test]
-        fn handle_data_fallible_returns_a_status_if_the_received_length_is_too_long(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
-        ) {
-            let adapter = TestAdapter::default();
-            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
-                adapter,
-                DefaultRouter
-            );
+    #[test]
+    fn handle_data_fallible_stops_to_handle_data_on_receive_errors() {
+        setup(|mut ercp| {
+            ercp.connection.adapter().test_send(&[0; 2]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::UnexpectedValue)]);
 
-            let reply = Command::new(code, &value).unwrap();
-            ercp.connection.adapter().test_send(&reply.as_frame());
+            ercp.handle_data_fallible().err();
+            assert_eq!(ercp.receiver.receive.call_count, 1);
+        });
+    }
+
+    #[test]
+    fn handle_data_fallible_returns_an_error_if_the_receiver_reports_a_too_long_length(
+    ) {
+        setup(|mut ercp| {
+            ercp.connection.adapter().test_send(&[0]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::TooLong)]);
 
             assert_eq!(
                 ercp.handle_data_fallible(),
                 Ok(Err(ReceiveError::TooLong))
             );
-        }
+        })
     }
 
-    proptest! {
-        #[test]
-        fn handle_data_fallible_sends_a_nack_if_the_received_length_is_too_long(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
-        ) {
-            let adapter = TestAdapter::default();
-            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
-                adapter,
-                DefaultRouter
-            );
-
-            let reply = Command::new(code, &value).unwrap();
-            ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn handle_data_fallible_sends_a_nack_if_the_receiver_reports_a_too_long_length(
+    ) {
+        setup(|mut ercp| {
+            ercp.connection.adapter().test_send(&[0]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::TooLong)]);
 
             ercp.handle_data_fallible().ok();
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 nack!(nack_reason::TOO_LONG).as_frame()
             );
+        });
+    }
+
+    proptest! {
+        #[test]
+        fn complete_frame_received_returns_the_state_returned_by_the_receiver(
+            complete_frame in proptest::bool::weighted(0.5),
+        ) {
+            setup(|mut ercp| {
+                ercp.receiver.complete_frame_received = complete_frame;
+                assert_eq!(ercp.complete_frame_received(), complete_frame);
+            });
         }
-    }
-
-    #[test]
-    fn complete_frame_received_returns_true_in_complete_state() {
-        setup(|mut ercp| {
-            ercp.receiver.set_state(State::Complete);
-            assert!(ercp.complete_frame_received());
-        });
-    }
-
-    #[test]
-    fn complete_frame_received_returns_false_otherwise() {
-        setup(|ercp| {
-            assert!(!ercp.complete_frame_received());
-        });
     }
 
     // proptest! {
@@ -1009,48 +1123,61 @@ mod tests {
         });
     }
 
+    // TODO: Process gets the next command from the receiver (once implemented).
+
     proptest! {
         #[test]
-        fn process_routes_the_command_to_its_handler(
-            mut ercp in ercp(State::Complete),
+        fn process_passes_the_command_to_the_router(
+            code in 0..=u8::MAX,
+            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
-            let command: OwnedCommand =
-                ercp.receiver.check_frame().unwrap().into();
+            setup(|mut ercp| {
+                let command = Command::new(code, &value).unwrap();
+                // TODO: Replace both these values with next_command.result once
+                // it is implemented.
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result =
+                    Ok(OwnedCommand::from(&command));
 
-            ercp.process(&mut ()).ok();
+                ercp.process(&mut ()).ok();
 
-            assert!(ercp.router.last_command.is_some());
-            let expected_command = ercp.router.last_command.unwrap();
-
-            assert_eq!(expected_command, command);
+                assert!(ercp.router.last_command.is_some());
+                assert_eq!(
+                    ercp.router.last_command.unwrap(),
+                    OwnedCommand::from(&command)
+                );
+            });
         }
     }
 
     proptest! {
         #[test]
         fn process_sends_the_reply_if_there_is_some(
-            mut ercp in ercp(State::Complete),
             code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
         ) {
-            let reply = Command::new(code, &value).unwrap();
-            let expected_frame = reply.as_frame();
+            setup(|mut ercp| {
+                let reply = Command::new(code, &value).unwrap();
+                let expected_frame = reply.as_frame();
 
-            ercp.router.reply = Some(reply.into());
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
+                ercp.router.reply = Some(reply.into());
 
-            ercp.process(&mut ()).ok();
-            assert_eq!(
-                ercp.connection.adapter().test_receive(),
-                expected_frame
-            );
+                ercp.process(&mut ()).ok();
+                assert_eq!(
+                    ercp.connection.adapter().test_receive(),
+                    expected_frame
+                );
+            });
         }
     }
 
-    proptest! {
-        #[test]
-        fn process_does_not_send_a_reply_if_there_is_none(
-            mut ercp in ercp(State::Complete),
-        ) {
+    #[test]
+    fn process_does_not_send_a_reply_if_there_is_none() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
             ercp.router.reply = None;
 
             ercp.process(&mut ()).ok();
@@ -1060,69 +1187,54 @@ mod tests {
                 // serde-yaml: https://github.com/dtolnay/serde-yaml/issues/140
                 &[] as &[u8]
             );
-        }
+        });
     }
 
-    proptest! {
-        #[test]
-        fn process_sends_a_nack_if_crc_is_invalid(
-            mut ercp in ercp(State::Complete),
-            bad_crc in 0..=u8::MAX,
-        ) {
-            prop_assume!(bad_crc != ercp.receiver.rx_frame().crc());
-            ercp.receiver.rx_frame_mut().set_crc(bad_crc);
+    #[test]
+    fn process_sends_a_nack_if_crc_is_invalid() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Err(FrameError::InvalidCrc);
 
             ercp.process(&mut ()).ok();
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 nack!(nack_reason::INVALID_CRC).as_frame()
             );
-        }
+        });
     }
 
-    proptest! {
-        #[test]
-        fn process_resets_the_state_machine(
-            mut ercp in ercp(State::Complete),
-        ) {
+    #[test]
+    fn process_resets_the_receiver() {
+        setup(|mut ercp| {
             ercp.process(&mut ()).ok();
-            assert_eq!(ercp.receiver.state(), State::Ready);
-        }
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
-    proptest! {
-        #[test]
-        fn process_resets_the_rx_frame(
-            mut ercp in ercp(State::Complete),
-        ) {
-            ercp.process(&mut ()).ok();
-            assert_eq!(ercp.receiver.rx_frame(), &FrameBuffer::default());
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn process_returns_an_error_on_write_errors(
-            mut ercp in ercp(State::Complete),
-        ) {
+    #[test]
+    fn process_returns_an_error_on_write_errors() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
             ercp.router.reply = Some(ack!().into());
             ercp.connection.adapter().write_error = Some(());
 
             assert_eq!(ercp.process(&mut ()), Err(()));
-        }
+        });
     }
 
-    proptest! {
-        #[test]
-        fn process_still_resets_the_rx_frame_on_errors(
-            mut ercp in ercp(State::Complete),
-        ) {
+    #[test]
+    fn process_still_resets_the_receiver_on_errors() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
             ercp.router.reply = Some(ack!().into());
             ercp.connection.adapter().write_error = Some(());
             ercp.process(&mut ()).err();
 
-            assert_eq!(ercp.receiver.rx_frame(), &FrameBuffer::default());
-        }
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
     // TODO: Test accept_command.
@@ -1140,7 +1252,8 @@ mod tests {
                 let expected_frame = command.as_frame();
 
                 // Ensure there is a reply not to block.
-                ercp.connection.adapter().test_send(&ack!().as_frame());
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
                 assert!(ercp.command(command).is_ok());
                 assert_eq!(
@@ -1152,14 +1265,16 @@ mod tests {
     }
 
     proptest! {
-        #[test]
+     #[test]
         fn command_returns_the_reply(
             code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             setup(|mut ercp| {
                 let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result =
+                    Ok(OwnedCommand::from(&reply));
 
                 assert_eq!(ercp.command(ping!()), Ok(reply));
             });
@@ -1182,45 +1297,26 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn command_returns_an_error_on_crc_errors(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
-        ) {
-            setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
+    #[test]
+    fn command_returns_an_error_on_crc_errors() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Err(FrameError::InvalidCrc);
 
-                // Introduce an error in the frame by changing the command code.
-                let mut frame = reply.as_frame();
-                frame[5] ^= 0xFF;
-
-                ercp.connection.adapter().test_send(&frame);
-
-                assert_eq!(
-                    ercp.command(ping!()),
-                    Err(CommandError::ReceivedFrameError(
-                        ReceivedFrameError::InvalidCrc
-                    ))
-                );
-            });
-        }
+            assert_eq!(
+                ercp.command(ping!()),
+                Err(CommandError::ReceivedFrameError(
+                    ReceivedFrameError::InvalidCrc
+                ))
+            );
+        });
     }
 
-    proptest! {
-        #[test]
-        fn command_returns_an_error_when_a_too_long_reply_is_received(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 2..=u8::MAX as usize),
-        ) {
-            let adapter = TestAdapter::default();
-            let mut ercp = ErcpBasic::<TestAdapter, DefaultRouter, 1>::new(
-                adapter,
-                DefaultRouter
-            );
-
-            let reply = Command::new(code, &value).unwrap();
-            ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn command_returns_an_error_when_the_receiver_reports_a_too_long_reply() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Err(FrameError::TooLong);
 
             assert_eq!(
                 ercp.command(ping!()),
@@ -1228,13 +1324,15 @@ mod tests {
                     ReceivedFrameError::TooLong
                 ))
             );
-        }
+        });
     }
 
     #[test]
     fn command_returns_an_error_when_an_unexpected_init_sequence_is_received() {
         setup(|mut ercp| {
             ercp.connection.adapter().test_send(&[0]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::UnexpectedValue)]);
 
             assert_eq!(
                 ercp.command(ping!()),
@@ -1248,8 +1346,9 @@ mod tests {
     #[test]
     fn command_returns_an_error_when_the_eot_is_not_proper() {
         setup(|mut ercp| {
-            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, 0];
-            ercp.connection.adapter().test_send(&frame);
+            ercp.connection.adapter().test_send(&[0]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::NotEot)]);
 
             assert_eq!(
                 ercp.command(ping!()),
@@ -1263,8 +1362,9 @@ mod tests {
     #[test]
     fn command_returns_an_error_when_received_data_overflows() {
         setup(|mut ercp| {
-            let frame = [b'E', b'R', b'C', b'P', b'B', 0, 0, 0, EOT, 0];
-            ercp.connection.adapter().test_send(&frame);
+            ercp.connection.adapter().test_send(&[0]);
+            ercp.receiver.receive.results =
+                Some(vec![Err(ReceiveError::Overflow)]);
 
             assert_eq!(
                 ercp.command(ping!()),
@@ -1278,8 +1378,10 @@ mod tests {
     #[test]
     fn command_returns_an_error_when_the_peer_reports_an_invalid_crc() {
         setup(|mut ercp| {
-            let reply = nack!(nack_reason::INVALID_CRC);
-            ercp.connection.adapter().test_send(&reply.as_frame());
+            let reply = nack!(nack_reason::INVALID_CRC).into();
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(reply);
+
             assert_eq!(
                 ercp.command(ping!()),
                 Err(CommandError::SentFrameError(FrameError::InvalidCrc))
@@ -1290,8 +1392,10 @@ mod tests {
     #[test]
     fn command_returns_an_error_when_the_frame_is_too_long_for_the_peer() {
         setup(|mut ercp| {
-            let reply = nack!(nack_reason::TOO_LONG);
-            ercp.connection.adapter().test_send(&reply.as_frame());
+            let reply = nack!(nack_reason::TOO_LONG).into();
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(reply);
+
             assert_eq!(
                 ercp.command(ping!()),
                 Err(CommandError::SentFrameError(FrameError::TooLong))
@@ -1339,9 +1443,9 @@ mod tests {
     fn ping_sends_a_ping() {
         setup(|mut ercp| {
             let expected_frame = ping!().as_frame();
-            let reply_frame = ack!().as_frame();
 
-            ercp.connection.adapter().test_send(&reply_frame);
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(ack!().into());
 
             assert_eq!(ercp.ping().unwrap(), Ok(()));
             assert_eq!(
@@ -1360,8 +1464,9 @@ mod tests {
             prop_assume!(code != ACK);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.ping().unwrap(),
@@ -1379,29 +1484,24 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn ping_resets_the_state(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
-        ) {
-            setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn ping_resets_the_receiver() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.ping().ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
-            });
-        }
+            ercp.ping().ok();
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
     #[test]
     fn reset_sends_a_reset() {
         setup(|mut ercp| {
             let expected_frame = reset!().as_frame();
-            let reply_frame = ack!().as_frame();
 
-            ercp.connection.adapter().test_send(&reply_frame);
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(ack!().into());
 
             assert_eq!(ercp.reset().unwrap(), Ok(()));
             assert_eq!(
@@ -1415,7 +1515,8 @@ mod tests {
     fn reset_returns_an_error_if_the_command_is_unhandled() {
         setup(|mut ercp| {
             let reply = nack!(nack_reason::UNKNOWN_COMMAND);
-            ercp.connection.adapter().test_send(&reply.as_frame());
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(reply.into());
 
             assert_eq!(
                 ercp.reset().unwrap(),
@@ -1433,8 +1534,9 @@ mod tests {
             prop_assume!(code != ACK && code != NACK);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.reset().unwrap(),
@@ -1452,30 +1554,25 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn reset_resets_the_state(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
-        ) {
-            setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn reset_resets_the_receiver() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.reset().ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
-            });
-        }
+            ercp.reset().ok();
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
     #[test]
     fn protocol_sends_a_protocol_command() {
         setup(|mut ercp| {
             let expected_frame = protocol!().as_frame();
-            let reply_frame =
-                protocol_reply!(version::PROTOCOL_VERSION).as_frame();
+            let reply = protocol_reply!(version::PROTOCOL_VERSION).into();
 
-            ercp.connection.adapter().test_send(&reply_frame);
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(reply);
 
             assert!(ercp.protocol().unwrap().is_ok());
             assert_eq!(
@@ -1494,9 +1591,10 @@ mod tests {
         ) {
             setup(|mut ercp| {
                 let version = Version { major, minor, patch };
-                let reply_frame = protocol_reply!(version).as_frame();
+                let reply = protocol_reply!(version).into();
 
-                ercp.connection.adapter().test_send(&reply_frame);
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.protocol().unwrap(),
@@ -1515,8 +1613,9 @@ mod tests {
             prop_assume!(code != PROTOCOL_REPLY || value.len() != 3);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.protocol().unwrap(),
@@ -1534,20 +1633,15 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn protocol_resets_the_state(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
-        ) {
-            setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn protocol_resets_the_receiver() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.protocol().ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
-            });
-        }
+            ercp.protocol().ok();
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
     proptest! {
@@ -1555,9 +1649,10 @@ mod tests {
         fn version_sends_a_version_command(component in 0..=u8::MAX) {
             setup(|mut ercp| {
                 let expected_frame = version!(component).as_frame();
-                let reply_frame = version_reply!("").as_frame();
+                let reply = version_reply!("").into();
 
-                ercp.connection.adapter().test_send(&reply_frame);
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert!(ercp.version(component, &mut []).unwrap().is_ok());
                 assert_eq!(
@@ -1575,8 +1670,9 @@ mod tests {
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = version_reply!(&version).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = version_reply!(&version).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 let mut buffer = [0; 255];
 
@@ -1596,8 +1692,9 @@ mod tests {
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = version_reply!(&version).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = version_reply!(&version).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.version(component, &mut [0; 255]).unwrap(),
@@ -1614,8 +1711,9 @@ mod tests {
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = version_reply!(&version).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = version_reply!(&version).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.version(component, &mut []).unwrap(),
@@ -1635,8 +1733,9 @@ mod tests {
             prop_assume!(code != VERSION_REPLY);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.version(component, &mut []).unwrap(),
@@ -1663,17 +1762,15 @@ mod tests {
 
     proptest! {
         #[test]
-        fn version_resets_the_state(
+        fn version_resets_the_receiver(
             component in 0..=u8::MAX,
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
                 ercp.version(component, &mut []).ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
+                assert_eq!(ercp.receiver.reset_state.call_count, 1);
             });
         }
     }
@@ -1685,9 +1782,10 @@ mod tests {
             ) {
             setup(|mut ercp| {
                 let expected_frame = version!(component).as_frame();
-                let reply_frame = version_reply!("").as_frame();
+                let reply = version_reply!("").into();
 
-                ercp.connection.adapter().test_send(&reply_frame);
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert!(ercp.version_as_string(component).unwrap().is_ok());
                 assert_eq!(
@@ -1705,12 +1803,13 @@ mod tests {
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = version_reply!(&version).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = version_reply!(&version).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 let result = ercp.version_as_string(component).unwrap();
                 assert!(result.is_ok());
-                assert_eq!(&result.unwrap(), &version);
+                assert_eq!(result.unwrap(), version);
             });
         }
     }
@@ -1725,8 +1824,9 @@ mod tests {
             prop_assume!(code != VERSION_REPLY);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.version_as_string(component).unwrap(),
@@ -1753,17 +1853,15 @@ mod tests {
 
     proptest! {
         #[test]
-        fn version_as_string_resets_the_state(
+        fn version_as_string_resets_the_receiver(
             component in 0..=u8::MAX,
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
                 ercp.version_as_string(component).ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
+                assert_eq!(ercp.receiver.reset_state.call_count, 1);
             });
         }
     }
@@ -1772,9 +1870,10 @@ mod tests {
     fn max_length_sends_a_max_length_command() {
         setup(|mut ercp| {
             let expected_frame = max_length!().as_frame();
-            let reply_frame = max_length_reply!(0).as_frame();
+            let reply = max_length_reply!(0).into();
 
-            ercp.connection.adapter().test_send(&reply_frame);
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(reply);
 
             assert!(ercp.max_length().unwrap().is_ok());
             assert_eq!(
@@ -1790,8 +1889,9 @@ mod tests {
             max_length in 0..=u8::MAX,
         ) {
             setup(|mut ercp| {
-                let reply_frame = max_length_reply!(max_length).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = max_length_reply!(max_length).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.max_length().unwrap(),
@@ -1810,8 +1910,9 @@ mod tests {
             prop_assume!(code != MAX_LENGTH_REPLY || value.len() != 1);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.max_length().unwrap(),
@@ -1829,29 +1930,25 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn max_length_resets_the_state(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
-        ) {
-            setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn max_length_resets_the_receiver() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.max_length().ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
-            });
-        }
+            ercp.max_length().ok();
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
     #[test]
     fn description_sends_a_description_command() {
         setup(|mut ercp| {
             let expected_frame = description!().as_frame();
-            let reply_frame = description_reply!("").as_frame();
+            let reply = description_reply!("").into();
 
-            ercp.connection.adapter().test_send(&reply_frame);
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(reply);
 
             assert!(ercp.description(&mut []).unwrap().is_ok());
             assert_eq!(
@@ -1867,8 +1964,9 @@ mod tests {
             description in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = description_reply!(&description).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = description_reply!(&description).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 let mut buffer = [0; 255];
 
@@ -1887,8 +1985,9 @@ mod tests {
             description in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = description_reply!(&description).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = description_reply!(&description).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.description(&mut [0; 255]).unwrap(),
@@ -1904,8 +2003,9 @@ mod tests {
             description in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = description_reply!(&description).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = description_reply!(&description).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.description(&mut []).unwrap(),
@@ -1924,8 +2024,9 @@ mod tests {
             prop_assume!(code != DESCRIPTION_REPLY);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.description(&mut []).unwrap(),
@@ -1946,29 +2047,25 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn description_resets_the_state(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
-        ) {
-            setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn description_resets_the_receiver() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.description(&mut []).ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
-            });
-        }
+            ercp.description(&mut []).ok();
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
     #[test]
     fn description_as_string_sends_a_description_command() {
         setup(|mut ercp| {
             let expected_frame = description!().as_frame();
-            let reply_frame = description_reply!("").as_frame();
+            let reply = description_reply!("").into();
 
-            ercp.connection.adapter().test_send(&reply_frame);
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(reply);
 
             assert!(ercp.description_as_string().unwrap().is_ok());
             assert_eq!(
@@ -1984,8 +2081,9 @@ mod tests {
             description in ".{1,100}",
         ) {
             setup(|mut ercp| {
-                let reply_frame = description_reply!(&description).as_frame();
-                ercp.connection.adapter().test_send(&reply_frame);
+                let reply = description_reply!(&description).into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 let result = ercp.description_as_string().unwrap();
                 assert!(result.is_ok());
@@ -2003,8 +2101,9 @@ mod tests {
             prop_assume!(code != DESCRIPTION_REPLY);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.description_as_string().unwrap(),
@@ -2025,20 +2124,15 @@ mod tests {
         });
     }
 
-    proptest! {
-        #[test]
-        fn description_as_string_resets_the_state(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
-        ) {
-            setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+    #[test]
+    fn description_as_string_resets_the_receiver() {
+        setup(|mut ercp| {
+            ercp.receiver.complete_frame_received = true;
+            ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.description_as_string().ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
-            });
-        }
+            ercp.description_as_string().ok();
+            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+        });
     }
 
     proptest! {
@@ -2076,9 +2170,9 @@ mod tests {
         fn sync_log_sends_a_log(message in ".{0,100}") {
             setup(|mut ercp| {
                 let expected_frame = Command::log(&message).unwrap().as_frame();
-                let reply_frame = ack!().as_frame();
 
-                ercp.connection.adapter().test_send(&reply_frame);
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(ack!().into());
 
                 assert_eq!(ercp.sync_log(&message).unwrap(), Ok(()));
                 assert_eq!(
@@ -2099,8 +2193,9 @@ mod tests {
             prop_assume!(code != ACK);
 
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                let reply = Command::new(code, &value).unwrap().into();
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
                     ercp.sync_log(&message).unwrap(),
@@ -2127,17 +2222,15 @@ mod tests {
 
     proptest! {
         #[test]
-        fn sync_log_resets_the_state(
+        fn sync_log_resets_the_receiver(
             message in ".{0,100}",
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
             setup(|mut ercp| {
-                let reply = Command::new(code, &value).unwrap();
-                ercp.connection.adapter().test_send(&reply.as_frame());
+                ercp.receiver.complete_frame_received = true;
+                ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
                 ercp.sync_log(&message).ok();
-                assert_eq!(ercp.receiver.state(), State::Ready);
+                assert_eq!(ercp.receiver.reset_state.call_count, 1);
             });
         }
     }
