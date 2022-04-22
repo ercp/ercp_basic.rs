@@ -124,7 +124,7 @@ impl<const MAX_LEN: usize> Receiver for StandardReceiver<MAX_LEN> {
                     }
 
                     Err(SetLengthError::TooLong) => {
-                        self.reset_state();
+                        self.reset();
                         Err(ReceiveError::TooLong)
                     }
                 },
@@ -153,7 +153,7 @@ impl<const MAX_LEN: usize> Receiver for StandardReceiver<MAX_LEN> {
                         Ok(())
                     } else {
                         // Unexpected value => reset.
-                        self.reset_state();
+                        self.reset();
                         Err(ReceiveError::NotEot)
                     }
                 }
@@ -174,7 +174,7 @@ impl<const MAX_LEN: usize> Receiver for StandardReceiver<MAX_LEN> {
         self.rx_frame.check_frame()
     }
 
-    fn reset_state(&mut self) {
+    fn reset(&mut self) {
         self.state = State::Ready;
         self.rx_frame.reset();
     }

@@ -702,7 +702,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     // receive timeout.
     /// Resets the receive state machine and clears the frame buffer.
     pub fn reset_state(&mut self) {
-        self.receiver.reset_state()
+        self.receiver.reset()
     }
 
     /// Blocks until a complete frame has been received.
@@ -753,7 +753,7 @@ mod tests {
         receive: ReceiveInfo,
         complete_frame_received: bool,
         check_frame: CheckFrameInfo,
-        reset_state: ResetStateInfo,
+        reset: ResetInfo,
     }
 
     #[derive(Debug, Default)]
@@ -769,7 +769,7 @@ mod tests {
     }
 
     #[derive(Debug, Default)]
-    struct ResetStateInfo {
+    struct ResetInfo {
         call_count: usize,
     }
 
@@ -794,7 +794,7 @@ mod tests {
                 check_frame: CheckFrameInfo {
                     result: Err(FrameError::InvalidCrc),
                 },
-                reset_state: ResetStateInfo::default(),
+                reset: ResetInfo::default(),
             }
         }
 
@@ -824,8 +824,8 @@ mod tests {
                 .map_err(|&e| e)
         }
 
-        fn reset_state(&mut self) {
-            self.reset_state.call_count += 1;
+        fn reset(&mut self) {
+            self.reset.call_count += 1;
         }
     }
 
@@ -1182,7 +1182,7 @@ mod tests {
     fn process_resets_the_receiver() {
         setup(|mut ercp| {
             ercp.process(&mut ()).ok();
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -1207,7 +1207,7 @@ mod tests {
             ercp.connection.adapter().write_error = Some(());
             ercp.process(&mut ()).err();
 
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -1465,7 +1465,7 @@ mod tests {
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
             ercp.ping().ok();
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -1535,7 +1535,7 @@ mod tests {
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
             ercp.reset().ok();
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -1614,7 +1614,7 @@ mod tests {
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
             ercp.protocol().ok();
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -1744,7 +1744,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
                 ercp.version(component, &mut []).ok();
-                assert_eq!(ercp.receiver.reset_state.call_count, 1);
+                assert_eq!(ercp.receiver.reset.call_count, 1);
             });
         }
     }
@@ -1835,7 +1835,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
                 ercp.version_as_string(component).ok();
-                assert_eq!(ercp.receiver.reset_state.call_count, 1);
+                assert_eq!(ercp.receiver.reset.call_count, 1);
             });
         }
     }
@@ -1911,7 +1911,7 @@ mod tests {
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
             ercp.max_length().ok();
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -2028,7 +2028,7 @@ mod tests {
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
             ercp.description(&mut []).ok();
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -2105,7 +2105,7 @@ mod tests {
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
             ercp.description_as_string().ok();
-            assert_eq!(ercp.receiver.reset_state.call_count, 1);
+            assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
 
@@ -2204,7 +2204,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
                 ercp.sync_log(&message).ok();
-                assert_eq!(ercp.receiver.reset_state.call_count, 1);
+                assert_eq!(ercp.receiver.reset.call_count, 1);
             });
         }
     }

@@ -45,7 +45,6 @@ pub trait Receiver {
     /// Checks the received frame.
     fn check_frame(&self) -> Result<Command, FrameError>;
 
-    // IDEA: Rename to reset.
-    /// Resets the receive state machine and clears the frame buffer.
-    fn reset_state(&mut self);
+    /// Resets the receiver so it is ready to accept and parse frames.
+    fn reset(&mut self);
 }
