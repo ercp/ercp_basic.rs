@@ -97,8 +97,12 @@ pub struct ErcpBasic<
 // TODO: Put elsewhere.
 const EOT: u8 = 0x04;
 
-impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize>
-    ErcpBasic<A, R, MAX_LEN>
+impl<
+        A: Adapter,
+        R: Router<MAX_LEN>,
+        const MAX_LEN: usize,
+        Re: Receiver<MAX_LEN>,
+    > ErcpBasic<A, R, MAX_LEN, Re>
 {
     /// Instantiates an ERCP Basic driver.
     ///
