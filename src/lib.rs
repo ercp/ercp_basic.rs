@@ -1434,6 +1434,33 @@ mod tests {
     /////////////////////////////// Commands ///////////////////////////////
 
     #[test]
+    fn command_calls_the_user_defined_callback() {
+        setup(|mut ercp| {
+            let mut callback_called = false;
+            ercp.command(|_| callback_called = true);
+            assert!(callback_called);
+        })
+    }
+
+    #[test]
+    fn command_returns_the_value_returned_by_the_callback() {
+        setup(|mut ercp| {
+            assert_eq!(
+                ercp.command(|_| (9, true, "hello")),
+                (9, true, "hello")
+            );
+        })
+    }
+
+    #[test]
+    fn command_resets_the_receiver() {
+        setup(|mut ercp| {
+            ercp.command(|_| {});
+            assert_eq!(ercp.receiver.reset.call_count, 1);
+        })
+    }
+
+    #[test]
     fn ping_sends_a_ping() {
         setup(|mut ercp| {
             let expected_frame = ping!().as_frame();
