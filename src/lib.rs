@@ -93,6 +93,19 @@ pub struct ErcpBasic<
     router: R,
 }
 
+/// An ERCP Basic commander.
+///
+/// A commander can only be built by [`ErcpBasic::command`].
+pub struct Commander<
+    'a,
+    A: Adapter,
+    R: Router<MAX_LEN>,
+    const MAX_LEN: usize,
+    Re: Receiver,
+> {
+    ercp: &'a mut ErcpBasic<A, R, MAX_LEN, Re>,
+}
+
 // TODO: Put elsewhere.
 const EOT: u8 = 0x04;
 
@@ -405,48 +418,11 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// ```
     pub fn command<T>(
         &mut self,
-        mut callback: impl FnMut(&mut ErcpBasic<A, R, MAX_LEN, Re>) -> T,
+        mut callback: impl FnMut(&mut Commander<A, R, MAX_LEN, Re>) -> T,
     ) -> T {
-        let result = callback(self);
+        let result = callback(&mut Commander { ercp: self });
         self.reset_state();
         result
-    }
-
-    /// Sends a command to the peer device, and waits for a reply.
-    ///
-    /// This function is meant to be used inside a command closure. Please see
-    /// the documentation for [`ErcpBasic::command`].
-    pub fn transcieve(
-        &mut self,
-        command: Command,
-    ) -> Result<Command, CommandError<A::Error>> {
-        self.connection
-            .send(command)
-            .map_err(CommandError::IoError)?;
-
-        self.wait_for_command_fallible()
-            .map_err(CommandError::IoError)?
-            .map_err(Into::into)
-            .map_err(CommandError::ReceivedFrameError)?;
-
-        let reply = self
-            .receiver
-            .check_frame()
-            .map_err(Into::into)
-            .map_err(CommandError::ReceivedFrameError)?;
-
-        // Check for any frame-level error notification from the peer.
-        match (reply.code(), reply.value()) {
-            (NACK, [nack_reason::TOO_LONG]) => {
-                Err(CommandError::SentFrameError(FrameError::TooLong))
-            }
-
-            (NACK, [nack_reason::INVALID_CRC]) => {
-                Err(CommandError::SentFrameError(FrameError::InvalidCrc))
-            }
-
-            _ => Ok(reply),
-        }
     }
 
     /// Sends a notification to the peer device.
@@ -731,16 +707,64 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
 
         Ok(())
     }
+}
+
+impl<
+        'a,
+        A: Adapter,
+        R: Router<MAX_LEN>,
+        const MAX_LEN: usize,
+        Re: Receiver,
+    > Commander<'a, A, R, MAX_LEN, Re>
+{
+    /// Sends a command to the peer device, and waits for a reply.
+    ///
+    /// This function is meant to be used inside a command closure. Please see
+    /// the documentation for [`ErcpBasic::command`].
+    pub fn transcieve(
+        &mut self,
+        command: Command,
+    ) -> Result<Command, CommandError<A::Error>> {
+        self.ercp
+            .connection
+            .send(command)
+            .map_err(CommandError::IoError)?;
+
+        self.wait_for_command_fallible()
+            .map_err(CommandError::IoError)?
+            .map_err(Into::into)
+            .map_err(CommandError::ReceivedFrameError)?;
+
+        let reply = self
+            .ercp
+            .receiver
+            .check_frame()
+            .map_err(Into::into)
+            .map_err(CommandError::ReceivedFrameError)?;
+
+        // Check for any frame-level error notification from the peer.
+        match (reply.code(), reply.value()) {
+            (NACK, [nack_reason::TOO_LONG]) => {
+                Err(CommandError::SentFrameError(FrameError::TooLong))
+            }
+
+            (NACK, [nack_reason::INVALID_CRC]) => {
+                Err(CommandError::SentFrameError(FrameError::InvalidCrc))
+            }
+
+            _ => Ok(reply),
+        }
+    }
 
     /// Blocks until a complete frame has been received.
     fn wait_for_command_fallible(
         &mut self,
     ) -> Result<Result<(), ReceiveError>, A::Error> {
-        while !self.complete_frame_received() {
+        while !self.ercp.complete_frame_received() {
             // TODO: Do different things depending on features.
 
             // TODO: Only with the blocking feature.
-            if let Err(error) = self.handle_data_fallible()? {
+            if let Err(error) = self.ercp.handle_data_fallible()? {
                 return Ok(Err(error));
             }
 
@@ -885,6 +909,16 @@ mod tests {
         let router = TestRouter::default();
         let ercp = ErcpBasic::new(adapter, router);
         test(ercp);
+    }
+
+    fn setup_commander(
+        test: impl Fn(Commander<TestAdapter, TestRouter, 255, TestReceiver>),
+    ) {
+        let adapter = TestAdapter::default();
+        let router = TestRouter::default();
+        let mut ercp = ErcpBasic::new(adapter, router);
+        let commander = Commander { ercp: &mut ercp };
+        test(commander);
     }
 
     ////////////////////////////// Data input //////////////////////////////
@@ -1233,17 +1267,18 @@ mod tests {
             code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
-            setup(|mut ercp| {
+            setup_commander(|mut commander| {
                 let command = Command::new(code, &value).unwrap();
                 let expected_frame = command.as_frame();
 
                 // Ensure there is a reply not to block.
-                ercp.receiver.complete_frame_received = true;
-                ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
+                commander.ercp.receiver.complete_frame_received = true;
+                commander.ercp.receiver.check_frame.result =
+                    Ok(OwnedCommand::default());
 
-                assert!(ercp.transcieve(command).is_ok());
+                assert!(commander.transcieve(command).is_ok());
                 assert_eq!(
-                    ercp.connection.adapter().test_receive(),
+                    commander.ercp.connection.adapter().test_receive(),
                     expected_frame
                 );
             });
@@ -1256,23 +1291,23 @@ mod tests {
             code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
-            setup(|mut ercp| {
+            setup_commander(|mut commander| {
                 let reply = Command::new(code, &value).unwrap();
-                ercp.receiver.complete_frame_received = true;
-                ercp.receiver.check_frame.result =
+                commander.ercp.receiver.complete_frame_received = true;
+                commander.ercp.receiver.check_frame.result =
                     Ok(OwnedCommand::from(&reply));
 
-                assert_eq!(ercp.transcieve(ping!()), Ok(reply));
+                assert_eq!(commander.transcieve(ping!()), Ok(reply));
             });
         }
     }
 
     #[test]
     fn transcieve_returns_an_error_on_write_errors() {
-        setup(|mut ercp| {
-            ercp.connection.adapter().write_error = Some(());
+        setup_commander(|mut commander| {
+            commander.ercp.connection.adapter().write_error = Some(());
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::IoError(()))
             );
         });
@@ -1280,10 +1315,10 @@ mod tests {
 
     #[test]
     fn transcieve_returns_an_error_on_read_errors() {
-        setup(|mut ercp| {
-            ercp.connection.adapter().read_error = Some(());
+        setup_commander(|mut commander| {
+            commander.ercp.connection.adapter().read_error = Some(());
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::IoError(()))
             );
         });
@@ -1291,12 +1326,13 @@ mod tests {
 
     #[test]
     fn transcieve_returns_an_error_on_crc_errors() {
-        setup(|mut ercp| {
-            ercp.receiver.complete_frame_received = true;
-            ercp.receiver.check_frame.result = Err(FrameError::InvalidCrc);
+        setup_commander(|mut commander| {
+            commander.ercp.receiver.complete_frame_received = true;
+            commander.ercp.receiver.check_frame.result =
+                Err(FrameError::InvalidCrc);
 
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::InvalidCrc
                 ))
@@ -1307,12 +1343,13 @@ mod tests {
     #[test]
     fn transcieve_returns_an_error_when_the_receiver_reports_a_too_long_reply()
     {
-        setup(|mut ercp| {
-            ercp.receiver.complete_frame_received = true;
-            ercp.receiver.check_frame.result = Err(FrameError::TooLong);
+        setup_commander(|mut commander| {
+            commander.ercp.receiver.complete_frame_received = true;
+            commander.ercp.receiver.check_frame.result =
+                Err(FrameError::TooLong);
 
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::TooLong
                 ))
@@ -1323,13 +1360,13 @@ mod tests {
     #[test]
     fn transcieve_returns_an_error_when_an_unexpected_init_sequence_is_received(
     ) {
-        setup(|mut ercp| {
-            ercp.connection.adapter().test_send(&[0]);
-            ercp.receiver.receive.results =
+        setup_commander(|mut commander| {
+            commander.ercp.connection.adapter().test_send(&[0]);
+            commander.ercp.receiver.receive.results =
                 Some(vec![Err(ReceiveError::UnexpectedValue)]);
 
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::UnexpectedValue
                 ))
@@ -1339,13 +1376,13 @@ mod tests {
 
     #[test]
     fn transcieve_returns_an_error_when_the_eot_is_not_proper() {
-        setup(|mut ercp| {
-            ercp.connection.adapter().test_send(&[0]);
-            ercp.receiver.receive.results =
+        setup_commander(|mut commander| {
+            commander.ercp.connection.adapter().test_send(&[0]);
+            commander.ercp.receiver.receive.results =
                 Some(vec![Err(ReceiveError::NotEot)]);
 
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::NotEot
                 ))
@@ -1355,13 +1392,13 @@ mod tests {
 
     #[test]
     fn transcieve_returns_an_error_when_received_data_overflows() {
-        setup(|mut ercp| {
-            ercp.connection.adapter().test_send(&[0]);
-            ercp.receiver.receive.results =
+        setup_commander(|mut commander| {
+            commander.ercp.connection.adapter().test_send(&[0]);
+            commander.ercp.receiver.receive.results =
                 Some(vec![Err(ReceiveError::Overflow)]);
 
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::Overflow
                 ))
@@ -1371,13 +1408,13 @@ mod tests {
 
     #[test]
     fn transcieve_returns_an_error_when_the_peer_reports_an_invalid_crc() {
-        setup(|mut ercp| {
+        setup_commander(|mut commander| {
             let reply = nack!(nack_reason::INVALID_CRC).into();
-            ercp.receiver.complete_frame_received = true;
-            ercp.receiver.check_frame.result = Ok(reply);
+            commander.ercp.receiver.complete_frame_received = true;
+            commander.ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::SentFrameError(FrameError::InvalidCrc))
             );
         });
@@ -1385,13 +1422,13 @@ mod tests {
 
     #[test]
     fn transcieve_returns_an_error_when_the_frame_is_too_long_for_the_peer() {
-        setup(|mut ercp| {
+        setup_commander(|mut commander| {
             let reply = nack!(nack_reason::TOO_LONG).into();
-            ercp.receiver.complete_frame_received = true;
-            ercp.receiver.check_frame.result = Ok(reply);
+            commander.ercp.receiver.complete_frame_received = true;
+            commander.ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                ercp.transcieve(ping!()),
+                commander.transcieve(ping!()),
                 Err(CommandError::SentFrameError(FrameError::TooLong))
             );
         });
