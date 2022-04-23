@@ -30,8 +30,6 @@ mod connection;
 mod crc;
 mod receiver;
 
-pub use ercp_basic_macros::command;
-
 pub use adapter::Adapter;
 pub use command::Command;
 pub use error::*;
