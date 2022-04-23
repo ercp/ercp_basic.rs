@@ -388,7 +388,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///         // The ERCP Basic driver itself cannot transcieve commands. By
     ///         // calling the command method, you gain access to a commander
     ///         // you can then use to actually transcieve.
-    ///         self.ercp.command(|commander| {
+    ///         self.ercp.command(|mut commander| {
     ///             // 1. Prepare your command.
     ///             let value = [arg];
     ///             // NOTE(unwrap): We control the size of `value`, and know it
@@ -417,9 +417,9 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// ```
     pub fn command<T>(
         &mut self,
-        mut callback: impl FnMut(&mut Commander<A, R, MAX_LEN, Re>) -> T,
+        mut callback: impl FnMut(Commander<A, R, MAX_LEN, Re>) -> T,
     ) -> T {
-        let result = callback(&mut Commander { ercp: self });
+        let result = callback(Commander { ercp: self });
         self.reset_state();
         result
     }
@@ -442,7 +442,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// when the reply is an
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     pub fn ping(&mut self) -> CommandResult<(), PingError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(ping!())?;
 
             if reply.code() == ACK {
@@ -463,7 +463,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// If the peer device does not support resets, this returns
     /// `Ok(Err(ResetError::UnhandledCommand))`.
     pub fn reset(&mut self) -> CommandResult<(), ResetError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(reset!())?;
 
             match reply.code() {
@@ -491,7 +491,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     pub fn protocol(
         &mut self,
     ) -> CommandResult<Version, ProtocolError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(protocol!())?;
 
             if reply.code() == PROTOCOL_REPLY && reply.length() == 3 {
@@ -526,7 +526,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         component: u8,
         version: &mut [u8],
     ) -> CommandResult<usize, VersionError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(version!(component))?;
 
             if reply.code() == VERSION_REPLY {
@@ -554,7 +554,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         &mut self,
         component: u8,
     ) -> CommandResult<String, VersionAsStringError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(version!(component))?;
 
             if reply.code() == VERSION_REPLY {
@@ -575,7 +575,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     pub fn max_length(
         &mut self,
     ) -> CommandResult<u8, MaxLengthError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(max_length!())?;
 
             if reply.code() == MAX_LENGTH_REPLY && reply.length() == 1 {
@@ -600,7 +600,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         &mut self,
         description: &mut [u8],
     ) -> CommandResult<usize, DescriptionError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(description!())?;
 
             if reply.code() == DESCRIPTION_REPLY {
@@ -627,7 +627,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     pub fn description_as_string(
         &mut self,
     ) -> CommandResult<String, DescriptionAsStringError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let reply = commander.transcieve(description!())?;
 
             if reply.code() == DESCRIPTION_REPLY {
@@ -667,7 +667,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         &mut self,
         message: &str,
     ) -> CommandResult<(), LogError, A::Error> {
-        self.command(|commander| {
+        self.command(|mut commander| {
             let command = match Command::log(message) {
                 Ok(command) => command,
                 Err(NewCommandError::TooLong) => {
