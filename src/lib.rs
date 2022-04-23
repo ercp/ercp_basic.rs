@@ -270,34 +270,35 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// You **must** call this function regularly somewhere in your code for
     /// ERCP Basic to work properly. It could be run for instance in a specific
     /// task or thread.
-    //
-    // NOTE: While `process` is not a command, the state must be reset after its
-    // execution, even when it fails. As the `command` attribute simply wraps a
-    // function to achieve exactly this goal, let’s use it here.
-    #[command(self)]
     pub fn process(
         &mut self,
         context: &mut R::Context,
     ) -> Result<(), A::Error> {
-        // TODO: Use self.receiver.next_command().
-        if self.complete_frame_received() {
-            match self.receiver.check_frame() {
-                Ok(command) => {
-                    if let Some(reply) = self.router.route(command, context) {
-                        self.connection.send(reply)?;
+        let result = (|| {
+            // TODO: Use self.receiver.next_command().
+            if self.complete_frame_received() {
+                match self.receiver.check_frame() {
+                    Ok(command) => {
+                        if let Some(reply) = self.router.route(command, context)
+                        {
+                            self.connection.send(reply)?;
+                        }
                     }
-                }
 
-                Err(FrameError::InvalidCrc) => {
-                    self.notify(nack!(nack_reason::INVALID_CRC))?;
-                }
+                    Err(FrameError::InvalidCrc) => {
+                        self.notify(nack!(nack_reason::INVALID_CRC))?;
+                    }
 
-                // REVIEW: This should not be reachable at this point.
-                Err(FrameError::TooLong) => unreachable!(),
+                    // REVIEW: This should not be reachable at this point.
+                    Err(FrameError::TooLong) => unreachable!(),
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })();
+
+        self.reset_state();
+        result
     }
 
     // TODO: Maybe put above handle_data and process? And update the docs?
