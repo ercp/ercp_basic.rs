@@ -331,38 +331,23 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         Ok(())
     }
 
-    /// Sends a command to the peer device, and waits for a reply.
+    /// Builds a custom command.
     ///
     /// This function is meant to be used to build *command methods* in a device
-    /// driver, like in the example below.
-    ///
-    /// The returned value is the command (i.e. the reply) received from the
-    /// peer device. To avoid copies, its value refers to the receive buffer, so
-    /// you must free it after processing it, by using
-    /// [`ErcpBasic::reset_state`]. If you need this value later, you should
-    /// copy it yourself in some place.
-    ///
-    /// If you forget to call [`ErcpBasic::reset_state`], your device will not
-    /// be able to receive any more commands. This is thankfully automatically
-    /// handled if you use the [`ercp_basic_macros::command`] macro, which
-    /// creates a wrapper around the command method to ensure the receiver state
-    /// is always reset. This is what is shown in the example below.
+    /// driver, like in the example below. It takes a closure as argument, in
+    /// which a commander is made available so you can transcieve a command and
+    /// its reply.
     ///
     /// # Example
     ///
     /// ```
     /// use ercp_basic::{
-    ///     command, error::CommandResult, Adapter, Command, DefaultRouter,
-    ///     ErcpBasic,
+    ///     error::CommandResult, Adapter, Command, DefaultRouter, ErcpBasic,
     /// };
     ///
     /// // It is always a good idea to represent the peer device as a struct,
     /// // owning an ERCP Basic driver instance.
     /// struct MyDevice<A: Adapter> {
-    ///     // Using ercp as the name for the ERCP Basic driver is a convention.
-    ///     // The #[command] attribute uses this fact, but you can still use
-    ///     // a different name if you want. In this case, you must use
-    ///     // #[command(self.field_name)] instead.
     ///     ercp: ErcpBasic<A, DefaultRouter>,
     /// }
     ///
@@ -380,41 +365,57 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///         Self { ercp }
     ///     }
     ///
-    ///     // This is a typical command method. Usage of the #[command]
-    ///     // attribute ensures the ERCP Basic receiver state is properly reset
-    ///     // after the method execution.
+    ///     // This is a typical command method.
     ///     //
-    ///     // Please also note the return type: CommandResult<T, E, IoError>.
+    ///     // Please note the return type: CommandResult<T, E, IoError>.
     ///     // This is a type alias to Result<Result<T, E>, CommandError<IoError>>.
     ///     // Using two levels of results helps to separate the command-specific
     ///     // errors `E` from the system-level `CommandError` (i.e. I/O errors
     ///     // and frame errors).
-    ///     #[command]
     ///     fn some_command(&mut self, arg: u8) -> CommandResult<u8, SomeCommandError, A::Error> {
-    ///         // 1. Prepare your command.
-    ///         let value = [arg];
-    ///         // NOTE(unwrap): We control the size of `value`, and know it is
-    ///         // smaller than u8::MAX.
-    ///         let command = Command::new(SOME_COMMAND, &value).unwrap();
+    ///         // The ERCP Basic driver itself cannot transcieve commands. By
+    ///         // calling the command method, you gain access to a commander
+    ///         // you can then use to actually transcieve.
+    ///         self.ercp.command(|commander| {
+    ///             // 1. Prepare your command.
+    ///             let value = [arg];
+    ///             // NOTE(unwrap): We control the size of `value`, and know it
+    ///             // is smaller than u8::MAX.
+    ///             let command = Command::new(SOME_COMMAND, &value).unwrap();
     ///
-    ///         // 2. Send the command to the peer device and wait for its reply.
-    ///         //
-    ///         // Note that we can use `?` to propagate system-level errors.
-    ///         let reply = self.ercp.transcieve(command)?;
+    ///             // 2. Send the command to the peer device and wait for its
+    ///             // reply.
+    ///             //
+    ///             // Note that we can use `?` to propagate system-level errors.
+    ///             let reply = commander.transcieve(command)?;
     ///
-    ///         // 3. Check if the reply is correct and use its value.
-    ///         if reply.code() == SOME_COMMAND_REPLY && reply.length() == 1 {
-    ///             // Don’t forget to wrap your result twice.
-    ///             Ok(Ok(reply.value()[0]))
-    ///         } else {
-    ///             // Same goes for errors: the transaction has gone smoothly
-    ///             // on a system level (outside Ok), but there is a
-    ///             // command-specific error (inside Err).
-    ///             Ok(Err(SomeCommandError::UnexpectedReply))
-    ///         }
+    ///             // 3. Check if the reply is correct and use its value.
+    ///             if reply.code() == SOME_COMMAND_REPLY && reply.length() == 1 {
+    ///                 // Don’t forget to wrap your result twice.
+    ///                 Ok(Ok(reply.value()[0]))
+    ///             } else {
+    ///                 // Same goes for errors: the transaction has gone
+    ///                 // smoothly on a system level (outside Ok), but there is
+    ///                 // a command-specific error (inside Err).
+    ///                 Ok(Err(SomeCommandError::UnexpectedReply))
+    ///             }
+    ///         })
     ///     }
     /// }
     /// ```
+    pub fn command<T>(
+        &mut self,
+        mut callback: impl FnMut(&mut ErcpBasic<A, R, MAX_LEN, Re>) -> T,
+    ) -> T {
+        let result = callback(self);
+        self.reset_state();
+        result
+    }
+
+    /// Sends a command to the peer device, and waits for a reply.
+    ///
+    /// This function is meant to be used inside a command closure. Please see
+    /// the documentation for [`ErcpBasic::command`].
     pub fn transcieve(
         &mut self,
         command: Command,
