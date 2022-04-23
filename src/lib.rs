@@ -400,7 +400,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///         // 2. Send the command to the peer device and wait for its reply.
     ///         //
     ///         // Note that we can use `?` to propagate system-level errors.
-    ///         let reply = self.ercp.command(command)?;
+    ///         let reply = self.ercp.transcieve(command)?;
     ///
     ///         // 3. Check if the reply is correct and use its value.
     ///         if reply.code() == SOME_COMMAND_REPLY && reply.length() == 1 {
@@ -415,7 +415,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///     }
     /// }
     /// ```
-    pub fn command(
+    pub fn transcieve(
         &mut self,
         command: Command,
     ) -> Result<Command, CommandError<A::Error>> {
@@ -467,7 +467,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     #[command(self)]
     pub fn ping(&mut self) -> CommandResult<(), PingError, A::Error> {
-        let reply = self.command(ping!())?;
+        let reply = self.transcieve(ping!())?;
 
         if reply.code() == ACK {
             Ok(Ok(()))
@@ -487,7 +487,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// `Ok(Err(ResetError::UnhandledCommand))`.
     #[command(self)]
     pub fn reset(&mut self) -> CommandResult<(), ResetError, A::Error> {
-        let reply = self.command(reset!())?;
+        let reply = self.transcieve(reset!())?;
 
         match reply.code() {
             ACK => Ok(Ok(())),
@@ -514,7 +514,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     pub fn protocol(
         &mut self,
     ) -> CommandResult<Version, ProtocolError, A::Error> {
-        let reply = self.command(protocol!())?;
+        let reply = self.transcieve(protocol!())?;
 
         if reply.code() == PROTOCOL_REPLY && reply.length() == 3 {
             let version = Version {
@@ -548,7 +548,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         component: u8,
         version: &mut [u8],
     ) -> CommandResult<usize, VersionError, A::Error> {
-        let reply = self.command(version!(component))?;
+        let reply = self.transcieve(version!(component))?;
 
         if reply.code() == VERSION_REPLY {
             let length = reply.value().len();
@@ -575,7 +575,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         &mut self,
         component: u8,
     ) -> CommandResult<String, VersionAsStringError, A::Error> {
-        let reply = self.command(version!(component))?;
+        let reply = self.transcieve(version!(component))?;
 
         if reply.code() == VERSION_REPLY {
             Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
@@ -595,7 +595,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     pub fn max_length(
         &mut self,
     ) -> CommandResult<u8, MaxLengthError, A::Error> {
-        let reply = self.command(max_length!())?;
+        let reply = self.transcieve(max_length!())?;
 
         if reply.code() == MAX_LENGTH_REPLY && reply.length() == 1 {
             Ok(Ok(reply.value()[0]))
@@ -619,7 +619,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         &mut self,
         description: &mut [u8],
     ) -> CommandResult<usize, DescriptionError, A::Error> {
-        let reply = self.command(description!())?;
+        let reply = self.transcieve(description!())?;
 
         if reply.code() == DESCRIPTION_REPLY {
             let length = reply.value().len();
@@ -645,7 +645,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     pub fn description_as_string(
         &mut self,
     ) -> CommandResult<String, DescriptionAsStringError, A::Error> {
-        let reply = self.command(description!())?;
+        let reply = self.transcieve(description!())?;
 
         if reply.code() == DESCRIPTION_REPLY {
             Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
@@ -689,7 +689,7 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
             Err(NewCommandError::TooLong) => return Ok(Err(LogError::TooLong)),
         };
 
-        let reply = self.command(command)?;
+        let reply = self.transcieve(command)?;
 
         if reply.code() == ACK {
             Ok(Ok(()))
@@ -1217,7 +1217,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn command_writes_a_frame_on_the_connection(
+        fn transcieve_writes_a_frame_on_the_connection(
             code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
@@ -1229,7 +1229,7 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                assert!(ercp.command(command).is_ok());
+                assert!(ercp.transcieve(command).is_ok());
                 assert_eq!(
                     ercp.connection.adapter().test_receive(),
                     expected_frame
@@ -1240,7 +1240,7 @@ mod tests {
 
     proptest! {
      #[test]
-        fn command_returns_the_reply(
+        fn transcieve_returns_the_reply(
             code in 0..=u8::MAX,
             value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
         ) {
@@ -1250,35 +1250,41 @@ mod tests {
                 ercp.receiver.check_frame.result =
                     Ok(OwnedCommand::from(&reply));
 
-                assert_eq!(ercp.command(ping!()), Ok(reply));
+                assert_eq!(ercp.transcieve(ping!()), Ok(reply));
             });
         }
     }
 
     #[test]
-    fn command_returns_an_error_on_write_errors() {
+    fn transcieve_returns_an_error_on_write_errors() {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(());
-            assert_eq!(ercp.command(ping!()), Err(CommandError::IoError(())));
+            assert_eq!(
+                ercp.transcieve(ping!()),
+                Err(CommandError::IoError(()))
+            );
         });
     }
 
     #[test]
-    fn command_returns_an_error_on_read_errors() {
+    fn transcieve_returns_an_error_on_read_errors() {
         setup(|mut ercp| {
             ercp.connection.adapter().read_error = Some(());
-            assert_eq!(ercp.command(ping!()), Err(CommandError::IoError(())));
+            assert_eq!(
+                ercp.transcieve(ping!()),
+                Err(CommandError::IoError(()))
+            );
         });
     }
 
     #[test]
-    fn command_returns_an_error_on_crc_errors() {
+    fn transcieve_returns_an_error_on_crc_errors() {
         setup(|mut ercp| {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Err(FrameError::InvalidCrc);
 
             assert_eq!(
-                ercp.command(ping!()),
+                ercp.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::InvalidCrc
                 ))
@@ -1287,13 +1293,14 @@ mod tests {
     }
 
     #[test]
-    fn command_returns_an_error_when_the_receiver_reports_a_too_long_reply() {
+    fn transcieve_returns_an_error_when_the_receiver_reports_a_too_long_reply()
+    {
         setup(|mut ercp| {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Err(FrameError::TooLong);
 
             assert_eq!(
-                ercp.command(ping!()),
+                ercp.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::TooLong
                 ))
@@ -1302,14 +1309,15 @@ mod tests {
     }
 
     #[test]
-    fn command_returns_an_error_when_an_unexpected_init_sequence_is_received() {
+    fn transcieve_returns_an_error_when_an_unexpected_init_sequence_is_received(
+    ) {
         setup(|mut ercp| {
             ercp.connection.adapter().test_send(&[0]);
             ercp.receiver.receive.results =
                 Some(vec![Err(ReceiveError::UnexpectedValue)]);
 
             assert_eq!(
-                ercp.command(ping!()),
+                ercp.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::UnexpectedValue
                 ))
@@ -1318,14 +1326,14 @@ mod tests {
     }
 
     #[test]
-    fn command_returns_an_error_when_the_eot_is_not_proper() {
+    fn transcieve_returns_an_error_when_the_eot_is_not_proper() {
         setup(|mut ercp| {
             ercp.connection.adapter().test_send(&[0]);
             ercp.receiver.receive.results =
                 Some(vec![Err(ReceiveError::NotEot)]);
 
             assert_eq!(
-                ercp.command(ping!()),
+                ercp.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::NotEot
                 ))
@@ -1334,14 +1342,14 @@ mod tests {
     }
 
     #[test]
-    fn command_returns_an_error_when_received_data_overflows() {
+    fn transcieve_returns_an_error_when_received_data_overflows() {
         setup(|mut ercp| {
             ercp.connection.adapter().test_send(&[0]);
             ercp.receiver.receive.results =
                 Some(vec![Err(ReceiveError::Overflow)]);
 
             assert_eq!(
-                ercp.command(ping!()),
+                ercp.transcieve(ping!()),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::Overflow
                 ))
@@ -1350,28 +1358,28 @@ mod tests {
     }
 
     #[test]
-    fn command_returns_an_error_when_the_peer_reports_an_invalid_crc() {
+    fn transcieve_returns_an_error_when_the_peer_reports_an_invalid_crc() {
         setup(|mut ercp| {
             let reply = nack!(nack_reason::INVALID_CRC).into();
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                ercp.command(ping!()),
+                ercp.transcieve(ping!()),
                 Err(CommandError::SentFrameError(FrameError::InvalidCrc))
             );
         });
     }
 
     #[test]
-    fn command_returns_an_error_when_the_frame_is_too_long_for_the_peer() {
+    fn transcieve_returns_an_error_when_the_frame_is_too_long_for_the_peer() {
         setup(|mut ercp| {
             let reply = nack!(nack_reason::TOO_LONG).into();
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                ercp.command(ping!()),
+                ercp.transcieve(ping!()),
                 Err(CommandError::SentFrameError(FrameError::TooLong))
             );
         });
