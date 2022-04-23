@@ -466,15 +466,16 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// then blocks until the peer device replies. The result is `Ok(Ok(()))`
     /// when the reply is an
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
-    #[command(self)]
     pub fn ping(&mut self) -> CommandResult<(), PingError, A::Error> {
-        let reply = self.transcieve(ping!())?;
+        self.command(|commander| {
+            let reply = commander.transcieve(ping!())?;
 
-        if reply.code() == ACK {
-            Ok(Ok(()))
-        } else {
-            Ok(Err(PingError::UnexpectedReply))
-        }
+            if reply.code() == ACK {
+                Ok(Ok(()))
+            } else {
+                Ok(Err(PingError::UnexpectedReply))
+            }
+        })
     }
 
     /// Resets the peer device.
@@ -486,22 +487,23 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     /// If the peer device does not support resets, this returns
     /// `Ok(Err(ResetError::UnhandledCommand))`.
-    #[command(self)]
     pub fn reset(&mut self) -> CommandResult<(), ResetError, A::Error> {
-        let reply = self.transcieve(reset!())?;
+        self.command(|commander| {
+            let reply = commander.transcieve(reset!())?;
 
-        match reply.code() {
-            ACK => Ok(Ok(())),
-            NACK => {
-                if reply.value() == [nack_reason::UNKNOWN_COMMAND] {
-                    Ok(Err(ResetError::UnhandledCommand))
-                } else {
-                    Ok(Err(ResetError::UnexpectedReply))
+            match reply.code() {
+                ACK => Ok(Ok(())),
+                NACK => {
+                    if reply.value() == [nack_reason::UNKNOWN_COMMAND] {
+                        Ok(Err(ResetError::UnhandledCommand))
+                    } else {
+                        Ok(Err(ResetError::UnexpectedReply))
+                    }
                 }
-            }
 
-            _ => Ok(Err(ResetError::UnexpectedReply)),
-        }
+                _ => Ok(Err(ResetError::UnexpectedReply)),
+            }
+        })
     }
 
     /// Gets the protocol version supported by the peer device.
@@ -511,23 +513,24 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// then blocks until the peer device replies. The result is
     /// `Ok(Ok(version))` when the reply is a [`Protocol_Reply(major, minor,
     /// patch)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol_replymajor-minor-patch).
-    #[command(self)]
     pub fn protocol(
         &mut self,
     ) -> CommandResult<Version, ProtocolError, A::Error> {
-        let reply = self.transcieve(protocol!())?;
+        self.command(|commander| {
+            let reply = commander.transcieve(protocol!())?;
 
-        if reply.code() == PROTOCOL_REPLY && reply.length() == 3 {
-            let version = Version {
-                major: reply.value()[0],
-                minor: reply.value()[1],
-                patch: reply.value()[2],
-            };
+            if reply.code() == PROTOCOL_REPLY && reply.length() == 3 {
+                let version = Version {
+                    major: reply.value()[0],
+                    minor: reply.value()[1],
+                    patch: reply.value()[2],
+                };
 
-            Ok(Ok(version))
-        } else {
-            Ok(Err(ProtocolError::UnexpectedReply))
-        }
+                Ok(Ok(version))
+            } else {
+                Ok(Err(ProtocolError::UnexpectedReply))
+            }
+        })
     }
 
     /// Gets the version of the given `component` in the peer device.
@@ -543,25 +546,26 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///
     /// Standard commponents from the ERCP Basic specification are defined in
     /// [`command::component`].
-    #[command(self)]
     pub fn version(
         &mut self,
         component: u8,
         version: &mut [u8],
     ) -> CommandResult<usize, VersionError, A::Error> {
-        let reply = self.transcieve(version!(component))?;
+        self.command(|commander| {
+            let reply = commander.transcieve(version!(component))?;
 
-        if reply.code() == VERSION_REPLY {
-            let length = reply.value().len();
-            if length <= version.len() {
-                version[0..length].copy_from_slice(reply.value());
-                Ok(Ok(length))
+            if reply.code() == VERSION_REPLY {
+                let length = reply.value().len();
+                if length <= version.len() {
+                    version[0..length].copy_from_slice(reply.value());
+                    Ok(Ok(length))
+                } else {
+                    Ok(Err(VersionError::BufferTooShort))
+                }
             } else {
-                Ok(Err(VersionError::BufferTooShort))
+                Ok(Err(VersionError::UnexpectedReply))
             }
-        } else {
-            Ok(Err(VersionError::UnexpectedReply))
-        }
+        })
     }
 
     /// Gets the version of the given `component` in the peer device, returning
@@ -571,18 +575,19 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// [`String`] instead of writing to a provided buffer.
     #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     #[cfg(any(feature = "std", test))]
-    #[command(self)]
     pub fn version_as_string(
         &mut self,
         component: u8,
     ) -> CommandResult<String, VersionAsStringError, A::Error> {
-        let reply = self.transcieve(version!(component))?;
+        self.command(|commander| {
+            let reply = commander.transcieve(version!(component))?;
 
-        if reply.code() == VERSION_REPLY {
-            Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
-        } else {
-            Ok(Err(VersionAsStringError::UnexpectedReply))
-        }
+            if reply.code() == VERSION_REPLY {
+                Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
+            } else {
+                Ok(Err(VersionAsStringError::UnexpectedReply))
+            }
+        })
     }
 
     /// Gets the maximum length accepted by the peer device.
@@ -592,17 +597,18 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// then blocks until the peer device replies. The result is
     /// `Ok(Ok(max_length))` when the reply is a
     /// [`Max_Length_Reply(max_length)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length_replymax_length).
-    #[command(self)]
     pub fn max_length(
         &mut self,
     ) -> CommandResult<u8, MaxLengthError, A::Error> {
-        let reply = self.transcieve(max_length!())?;
+        self.command(|commander| {
+            let reply = commander.transcieve(max_length!())?;
 
-        if reply.code() == MAX_LENGTH_REPLY && reply.length() == 1 {
-            Ok(Ok(reply.value()[0]))
-        } else {
-            Ok(Err(MaxLengthError::UnexpectedReply))
-        }
+            if reply.code() == MAX_LENGTH_REPLY && reply.length() == 1 {
+                Ok(Ok(reply.value()[0]))
+            } else {
+                Ok(Err(MaxLengthError::UnexpectedReply))
+            }
+        })
     }
 
     /// Gets the description of the peer device.
@@ -615,24 +621,25 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// In this case, `description[0..size]` contains the description, encoded
     /// in UTF-8. If the provided buffer is too short to hold the description, a
     /// `Ok(Err(DescriptionError::BufferTooShort))` is returned.
-    #[command(self)]
     pub fn description(
         &mut self,
         description: &mut [u8],
     ) -> CommandResult<usize, DescriptionError, A::Error> {
-        let reply = self.transcieve(description!())?;
+        self.command(|commander| {
+            let reply = commander.transcieve(description!())?;
 
-        if reply.code() == DESCRIPTION_REPLY {
-            let length = reply.value().len();
-            if length <= description.len() {
-                description[0..length].copy_from_slice(reply.value());
-                Ok(Ok(length))
+            if reply.code() == DESCRIPTION_REPLY {
+                let length = reply.value().len();
+                if length <= description.len() {
+                    description[0..length].copy_from_slice(reply.value());
+                    Ok(Ok(length))
+                } else {
+                    Ok(Err(DescriptionError::BufferTooShort))
+                }
             } else {
-                Ok(Err(DescriptionError::BufferTooShort))
+                Ok(Err(DescriptionError::UnexpectedReply))
             }
-        } else {
-            Ok(Err(DescriptionError::UnexpectedReply))
-        }
+        })
     }
 
     /// Gets the description of the peer device, returning the result as a
@@ -642,17 +649,18 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// [`String`] instead of writing to a provided buffer.
     #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     #[cfg(any(feature = "std", test))]
-    #[command(self)]
     pub fn description_as_string(
         &mut self,
     ) -> CommandResult<String, DescriptionAsStringError, A::Error> {
-        let reply = self.transcieve(description!())?;
+        self.command(|commander| {
+            let reply = commander.transcieve(description!())?;
 
-        if reply.code() == DESCRIPTION_REPLY {
-            Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
-        } else {
-            Ok(Err(DescriptionAsStringError::UnexpectedReply))
-        }
+            if reply.code() == DESCRIPTION_REPLY {
+                Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
+            } else {
+                Ok(Err(DescriptionAsStringError::UnexpectedReply))
+            }
+        })
     }
 
     /// Sends a log message to the peer device.
@@ -680,23 +688,26 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// then blocks until the peer device replies. The result is `Ok(Ok(()))`
     /// when the reply is an
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
-    #[command(self)]
     pub fn sync_log(
         &mut self,
         message: &str,
     ) -> CommandResult<(), LogError, A::Error> {
-        let command = match Command::log(message) {
-            Ok(command) => command,
-            Err(NewCommandError::TooLong) => return Ok(Err(LogError::TooLong)),
-        };
+        self.command(|commander| {
+            let command = match Command::log(message) {
+                Ok(command) => command,
+                Err(NewCommandError::TooLong) => {
+                    return Ok(Err(LogError::TooLong))
+                }
+            };
 
-        let reply = self.transcieve(command)?;
+            let reply = commander.transcieve(command)?;
 
-        if reply.code() == ACK {
-            Ok(Ok(()))
-        } else {
-            Ok(Err(LogError::UnexpectedReply))
-        }
+            if reply.code() == ACK {
+                Ok(Ok(()))
+            } else {
+                Ok(Err(LogError::UnexpectedReply))
+            }
+        })
     }
 
     // TODO: Call this after handling the reply of a command, or to implement a
