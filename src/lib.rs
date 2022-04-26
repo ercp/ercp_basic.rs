@@ -16,6 +16,8 @@
 
 #![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(clippy::redundant_pub_crate)]
+#![warn(clippy::use_self)]
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 #![deny(unused_must_use)]

@@ -25,7 +25,7 @@ use crate::EOT;
 
 /// An ERCP Basic connection.
 #[derive(Debug)]
-pub(crate) struct Connection<A: Adapter> {
+pub struct Connection<A: Adapter> {
     adapter: A,
 }
 
@@ -79,7 +79,7 @@ impl<A: Adapter> Connection<A> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use super::*;
 
     use std::collections::VecDeque;
@@ -88,7 +88,7 @@ pub(crate) mod tests {
     use proptest::prelude::*;
 
     #[derive(Debug, Default)]
-    pub(crate) struct TestAdapter {
+    pub struct TestAdapter {
         tx_buffer: VecDeque<u8>,
         rx_buffer: VecDeque<u8>,
         pub write_error: Option<()>,

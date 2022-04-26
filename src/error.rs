@@ -135,7 +135,7 @@ pub enum LogError {
 impl From<NewCommandError> for FrameError {
     fn from(error: NewCommandError) -> Self {
         match error {
-            NewCommandError::TooLong => FrameError::TooLong,
+            NewCommandError::TooLong => Self::TooLong,
         }
     }
 }
@@ -143,8 +143,8 @@ impl From<NewCommandError> for FrameError {
 impl From<FrameError> for ReceivedFrameError {
     fn from(error: FrameError) -> Self {
         match error {
-            FrameError::TooLong => ReceivedFrameError::TooLong,
-            FrameError::InvalidCrc => ReceivedFrameError::InvalidCrc,
+            FrameError::TooLong => Self::TooLong,
+            FrameError::InvalidCrc => Self::InvalidCrc,
         }
     }
 }
@@ -152,12 +152,10 @@ impl From<FrameError> for ReceivedFrameError {
 impl From<ReceiveError> for ReceivedFrameError {
     fn from(error: ReceiveError) -> Self {
         match error {
-            ReceiveError::UnexpectedValue => {
-                ReceivedFrameError::UnexpectedValue
-            }
-            ReceiveError::TooLong => ReceivedFrameError::TooLong,
-            ReceiveError::NotEot => ReceivedFrameError::NotEot,
-            ReceiveError::Overflow => ReceivedFrameError::Overflow,
+            ReceiveError::UnexpectedValue => Self::UnexpectedValue,
+            ReceiveError::TooLong => Self::TooLong,
+            ReceiveError::NotEot => Self::NotEot,
+            ReceiveError::Overflow => Self::Overflow,
         }
     }
 }

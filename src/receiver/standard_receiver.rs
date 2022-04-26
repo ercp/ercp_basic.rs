@@ -49,26 +49,26 @@ enum Field {
     Code,
     Length,
     Value,
-    CRC,
-    EOT,
+    Crc,
+    Eot,
 }
 
 impl InitState {
     const fn next_state(&self) -> State {
         match self {
-            InitState::R => State::Init(InitState::C),
-            InitState::C => State::Init(InitState::P),
-            InitState::P => State::Init(InitState::B),
-            InitState::B => State::Receiving(Field::Code),
+            Self::R => State::Init(Self::C),
+            Self::C => State::Init(Self::P),
+            Self::P => State::Init(Self::B),
+            Self::B => State::Receiving(Field::Code),
         }
     }
 
     const fn value(&self) -> u8 {
         match self {
-            InitState::R => b'R',
-            InitState::C => b'C',
-            InitState::P => b'P',
-            InitState::B => b'B',
+            Self::R => b'R',
+            Self::C => b'C',
+            Self::P => b'P',
+            Self::B => b'B',
         }
     }
 }
@@ -115,7 +115,7 @@ impl<const MAX_LEN: usize> Receiver for StandardReceiver<MAX_LEN> {
                     Ok(()) => {
                         if byte == 0 {
                             // No value field if the length is zero.
-                            self.state = State::Receiving(Field::CRC);
+                            self.state = State::Receiving(Field::Crc);
                         } else {
                             self.state = State::Receiving(Field::Value);
                         }
@@ -135,19 +135,19 @@ impl<const MAX_LEN: usize> Receiver for StandardReceiver<MAX_LEN> {
                     self.rx_frame.push_value(byte).ok();
 
                     if self.rx_frame.value_is_complete() {
-                        self.state = State::Receiving(Field::CRC);
+                        self.state = State::Receiving(Field::Crc);
                     }
 
                     Ok(())
                 }
 
-                Field::CRC => {
+                Field::Crc => {
                     self.rx_frame.set_crc(byte);
-                    self.state = State::Receiving(Field::EOT);
+                    self.state = State::Receiving(Field::Eot);
                     Ok(())
                 }
 
-                Field::EOT => {
+                Field::Eot => {
                     if byte == EOT {
                         self.state = State::Complete;
                         Ok(())
@@ -228,15 +228,15 @@ pub mod tests {
                                 receiver.rx_frame.push_value(byte).unwrap();
                             }
 
-                            receiver.state = State::Receiving(Field::CRC);
+                            receiver.state = State::Receiving(Field::Crc);
                         }
 
-                        Field::CRC => {
+                        Field::Crc => {
                             receiver.rx_frame.set_crc(crc(code, &value));
-                            receiver.state = State::Receiving(Field::EOT);
+                            receiver.state = State::Receiving(Field::Eot);
                         }
 
-                        Field::EOT => {
+                        Field::Eot => {
                             receiver.state = State::Complete;
                         }
                     },
@@ -469,7 +469,7 @@ pub mod tests {
         ) {
             let length = 0;
             receiver.receive(length).ok();
-            assert_eq!(receiver.state, State::Receiving(Field::CRC));
+            assert_eq!(receiver.state, State::Receiving(Field::Crc));
         }
     }
 
@@ -573,7 +573,7 @@ pub mod tests {
                 receiver.receive(byte).ok();
             }
 
-            assert_eq!(receiver.state, State::Receiving(Field::CRC));
+            assert_eq!(receiver.state, State::Receiving(Field::Crc));
         }
     }
 
@@ -582,7 +582,7 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_crc_stage_returns_ok(
-            mut receiver in receiver(State::Receiving(Field::CRC)),
+            mut receiver in receiver(State::Receiving(Field::Crc)),
             crc in 0..=u8::MAX,
         ) {
             assert_eq!(receiver.receive(crc), Ok(()));
@@ -592,7 +592,7 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_crc_stage_stores_crc(
-            mut receiver in receiver(State::Receiving(Field::CRC)),
+            mut receiver in receiver(State::Receiving(Field::Crc)),
             crc in 0..=u8::MAX,
         ) {
             receiver.receive(crc).ok();
@@ -603,11 +603,11 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_crc_stage_goes_to_eot_stage(
-            mut receiver in receiver(State::Receiving(Field::CRC)),
+            mut receiver in receiver(State::Receiving(Field::Crc)),
             crc in 0..=u8::MAX,
         ) {
             receiver.receive(crc).ok();
-            assert_eq!(receiver.state, State::Receiving(Field::EOT));
+            assert_eq!(receiver.state, State::Receiving(Field::Eot));
         }
     }
 
@@ -616,7 +616,7 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_eot_stage_returns_ok_on_eot(
-            mut receiver in receiver(State::Receiving(Field::EOT)),
+            mut receiver in receiver(State::Receiving(Field::Eot)),
         ) {
             assert_eq!(receiver.receive(EOT), Ok(()));
         }
@@ -625,7 +625,7 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_eot_stage_goes_to_complete_on_eot(
-            mut receiver in receiver(State::Receiving(Field::EOT)),
+            mut receiver in receiver(State::Receiving(Field::Eot)),
         ) {
             receiver.receive(EOT).ok();
             assert_eq!(receiver.state, State::Complete);
@@ -635,7 +635,7 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_eot_stage_returns_an_error_on_random_value(
-            mut receiver in receiver(State::Receiving(Field::EOT)),
+            mut receiver in receiver(State::Receiving(Field::Eot)),
             not_eot in 0..=u8::MAX,
         ) {
             prop_assume!(not_eot != EOT);
@@ -647,7 +647,7 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_eot_stage_goes_back_to_ready_on_random_value(
-            mut receiver in receiver(State::Receiving(Field::EOT)),
+            mut receiver in receiver(State::Receiving(Field::Eot)),
             not_eot in 0..=u8::MAX,
         ) {
             prop_assume!(not_eot != EOT);
@@ -660,7 +660,7 @@ pub mod tests {
     proptest! {
         #[test]
         fn receive_at_eot_stage_resets_the_rx_frame_on_random_value(
-            mut receiver in receiver(State::Receiving(Field::EOT)),
+            mut receiver in receiver(State::Receiving(Field::Eot)),
             not_eot in 0..=u8::MAX,
         ) {
             prop_assume!(not_eot != EOT);
