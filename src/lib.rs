@@ -150,19 +150,110 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
         (self.connection.release(), self.router)
     }
 
+    /// Blocks until a command has been received an processes it.
+    ///
+    /// To have a more fine-grained control over when to handle incoming data
+    /// and processing commands, you may consider to call
+    /// [`ErcpBasic::handle_data`] and [`ErcpBasic::process`] instead.
+    ///
+    /// # Errors
+    ///
+    /// If the connection adapter encounters an error while trying to read data,
+    /// this function stops and forwards the error from the adapter. You may
+    /// want to retry in this case.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
+    /// #
+    /// # struct DummyAdapter;
+    /// #
+    /// # impl Adapter for DummyAdapter {
+    /// #    type Error = ();
+    /// #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
+    /// # }
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
+    /// // Call accept_command in a loop to continuously accept commands.
+    /// loop {
+    ///     if let Err(e) = ercp.accept_command(&mut ()) {
+    ///         // If the connection adapter has encountered an error. You can
+    ///         // just ignore it to retry gracefully, log the error, or take
+    ///         // some action.
+    ///     }
+    ///
+    ///     // Optionally do some post-processing.
+    /// }
+    /// ```
+    pub fn accept_command(
+        &mut self,
+        context: &mut R::Context,
+    ) -> Result<(), A::Error> {
+        self.wait_for_command()?;
+        self.process(context)?;
+        Ok(())
+    }
+
     /// Handles incoming data.
     ///
     /// This function reads data from the connection and processes it until
     /// there is nothing more to read.
     ///
-    /// You **must** call this function regularly somewhere in your code for
-    /// ERCP Basic to work properly. Typical places to call it include your
-    /// connection interrupt handler, an event loop, etc.
+    /// You should typically call this function in the handler for the “data
+    /// available” event of your connection adapter. It will only copy data to
+    /// an internal buffer and update a state machine.
+    ///
+    /// After calling this function, you should check if a complete frame has
+    /// been received by calling [`ErcpBasic::complete_frame_received`], and
+    /// program an execution of [`ErcpBasic::process`] if it is the case.
     ///
     /// # Errors
     ///
     /// If the connection adapter encounters an error while trying to read or
     /// write data, this function stops and forwards the error from the adapter.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
+    /// #
+    /// # struct Context<'a> {
+    /// #    ercp: &'a mut ErcpBasic::<DummyAdapter, DefaultRouter>,
+    /// #    ercp_context: &'a mut (),
+    /// # }
+    /// #
+    /// # struct DummyAdapter;
+    /// #
+    /// # impl Adapter for DummyAdapter {
+    /// #    type Error = ();
+    /// #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
+    /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
+    /// # }
+    /// #
+    /// # fn spawn_task(task: impl Fn(Context)) {}
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
+    /// // This is the “data available” event handler for your connection.
+    /// fn data_available(ctx: Context) {
+    ///     // As data is available, you need first to handle it.
+    ///     ctx.ercp.handle_data().ok();
+    ///
+    ///     // Then check if a complete frame has been received.
+    ///     if ctx.ercp.complete_frame_received() {
+    ///         // If it is the case, it is ready to be processed. As it is a
+    ///         // more expensive operation, let’s defer it to another task,
+    ///         // maybe with a different priority.
+    ///         spawn_task(ercp_process);
+    ///     }
+    /// }
+    ///
+    /// // This is a task to actually process any received command.
+    /// fn ercp_process(ctx: Context) {
+    ///     ctx.ercp.process(ctx.ercp_context).ok();
+    /// }
+    /// ```
     pub fn handle_data(&mut self) -> Result<(), A::Error> {
         while let Some(byte) = self.connection.read()? {
             if let Err(ReceiveError::TooLong) = self.receiver.receive(byte) {
@@ -185,8 +276,9 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///
     /// This function returns two levels of errors:
     ///
-    /// * errors from the connection adapter, in case of read or write error,
-    /// * errors from the receive state machine.
+    /// * errors from the connection adapter in the outer [`Result`], in case of
+    ///   read or write error,
+    /// * errors from the receive state machine in the inner [`Result`].
     ///
     /// # Example
     ///
@@ -228,12 +320,19 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
 
     /// Returns wether a complete frame has been received.
     ///
-    /// If it returns `true`, you should then call `process`.
+    /// If it returns `true`, you should then call [`ErcpBasic::process`].
     pub fn complete_frame_received(&self) -> bool {
         self.receiver.complete_frame_received()
     }
 
     /// Processes any received command.
+    ///
+    /// You should typically call this command inside a dedicated thread or task
+    /// whenever a complete frame has been received. See
+    /// [`ErcpBasic::handle_data`]. for more information.
+    ///
+    /// The `context` parameter is passed to the [`Router`] to make any resource
+    /// available in command handlers.
     ///
     /// # Errors
     ///
@@ -264,10 +363,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///     // Do something with the error.
     /// }
     /// ```
-    ///
-    /// You **must** call this function regularly somewhere in your code for
-    /// ERCP Basic to work properly. It could be run for instance in a specific
-    /// task or thread.
     pub fn process(
         &mut self,
         context: &mut R::Context,
@@ -297,50 +392,6 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
 
         self.reset_state();
         result
-    }
-
-    // TODO: Maybe put above handle_data and process? And update the docs?
-    /// Blocks until a command has been received an process it.
-    ///
-    /// This is an alternative to calling [`ErcpBasic::handle_data`] and
-    /// [`ErcpBasic::process`] directly which can be used to integrate ERCP
-    /// Basic in a very simple event loop.
-    ///
-    /// # Errors
-    ///
-    /// If the connection adapter encounters an error while trying to read data,
-    /// this function stops and forwards the error from the adapter.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
-    /// #
-    /// # struct DummyAdapter;
-    /// #
-    /// # impl Adapter for DummyAdapter {
-    /// #    type Error = ();
-    /// #    fn read(&mut self) -> Result<Option<u8>, ()> { Ok(None) }
-    /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
-    /// # }
-    /// #
-    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
-    /// loop {
-    ///     if let Err(e) = ercp.accept_command(&mut ()) {
-    ///         // If the connection adapter has encountered an error. You can
-    ///         // just retry gracefully, log the error, or take some action.
-    ///     }
-    ///
-    ///     // Optionally do some post-processing.
-    /// }
-    /// ```
-    pub fn accept_command(
-        &mut self,
-        context: &mut R::Context,
-    ) -> Result<(), A::Error> {
-        self.wait_for_command()?;
-        self.process(context)?;
-        Ok(())
     }
 
     /// Builds a custom command.
