@@ -20,8 +20,14 @@ use core::hash::Hasher;
 
 use embedded_crc_macros::crc8_hasher_lookup_table;
 
-include!(concat!(env!("OUT_DIR"), "/lookup_table.rs"));
-crc8_hasher_lookup_table!(CRC, 0x00, "ERCP Basic frame CRC.");
+include!(concat!(env!("OUT_DIR"), "/crc_lookup_table.rs"));
+
+crc8_hasher_lookup_table!(
+    struct CRC,
+    0x00,
+    CRC_LOOKUP_TABLE,
+    "ERCP Basic frame CRC."
+);
 
 pub fn crc(command_code: u8, value: &[u8]) -> u8 {
     let mut hasher = CRC::new();
