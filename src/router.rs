@@ -80,7 +80,7 @@ use crate::ErcpBasic;
 ///
 /// struct ApplicationRouter;
 ///
-/// impl<const MAX_LEN: usize> Router<MAX_LEN> for ApplicationRouter {
+/// impl Router for ApplicationRouter {
 ///     type Context = ();
 ///
 ///     fn firmware_version(&self) -> &str {
@@ -111,7 +111,7 @@ use crate::ErcpBasic;
 ///
 /// const MY_COMMAND: u8 = 0x20;
 ///
-/// impl Router<255> for ApplicationRouter {
+/// impl Router for ApplicationRouter {
 ///     type Context = ();
 ///
 ///     // Override the route method.
@@ -179,7 +179,7 @@ use crate::ErcpBasic;
 ///
 /// const LED_ON: u8 = 0x20;
 ///
-/// impl Router<255> for ApplicationRouter {
+/// impl Router for ApplicationRouter {
 ///     // Use the type defined above as the context for your router.
 ///     type Context = DriveableResources;
 ///
@@ -224,7 +224,7 @@ use crate::ErcpBasic;
 ///     #
 ///     // Initialise the ERCP Basic driver with your router.
 ///     let adapter = SomeAdapter::new();
-///     let mut ercp: ErcpBasic<_, _, 255> = ErcpBasic::new(adapter, ApplicationRouter);
+///     let mut ercp: ErcpBasic<_, _> = ErcpBasic::new(adapter, ApplicationRouter);
 ///
 ///     // Gather your driveable resources.
 ///     let mut resources = DriveableResources { led };
@@ -263,7 +263,7 @@ use crate::ErcpBasic;
 /// // longer than 10 bytes.
 /// const VALUE_TOO_LONG: u8 = 0x10;
 ///
-/// impl Router<255> for ApplicationRouter {
+/// impl Router for ApplicationRouter {
 ///     type Context = ();
 ///
 ///     fn route(
@@ -311,7 +311,7 @@ use crate::ErcpBasic;
 ///
 /// struct ApplicationRouter;
 ///
-/// impl<const MAX_LEN: usize> Router<MAX_LEN> for ApplicationRouter {
+/// impl Router for ApplicationRouter {
 ///     type Context = ();
 ///
 ///     // Simply override the handle_reset method.
@@ -343,7 +343,7 @@ use crate::ErcpBasic;
 /// // Define a component number for your component.
 /// const MY_EXTENSION: u8 = 0x10;
 ///
-/// impl Router<255> for ApplicationRouter {
+/// impl Router for ApplicationRouter {
 ///     type Context = ();
 ///
 ///     // Override the version method.
@@ -362,7 +362,7 @@ use crate::ErcpBasic;
 ///     }
 /// }
 /// ```
-pub trait Router<const MAX_LEN: usize> {
+pub trait Router<const MAX_LEN: usize = 255> {
     /// The context for the router.
     ///
     /// The [`Router::route`] methode takes a context as argument, which can be
@@ -395,7 +395,7 @@ pub trait Router<const MAX_LEN: usize> {
     /// # const COMMAND_A: u8 = 0x20;
     /// # const COMMAND_B: u8 = 0x21;
     /// #
-    /// impl Router<255> for ApplicationRouter {
+    /// impl Router for ApplicationRouter {
     ///     type Context = ();
     ///
     ///     fn route(
@@ -555,7 +555,7 @@ pub trait Router<const MAX_LEN: usize> {
     /// # const VERSION_OF_A: &str = "";
     /// # const VERSION_OF_B: &str = "";
     /// #
-    /// impl Router<255> for ApplicationRouter {
+    /// impl Router for ApplicationRouter {
     ///     type Context = ();
     ///
     ///     fn version(&self, component: u8) -> &str {
