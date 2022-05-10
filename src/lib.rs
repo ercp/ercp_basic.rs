@@ -65,9 +65,15 @@ use receiver::{Receiver, StandardReceiver};
 /// If this is not sufficient for your use case, you can still write your own by
 /// implementing the [`Adapter`] trait.
 ///
-/// In addition to the adapter, you need do provide a [`Router`] for handling
-/// incoming commands. [`DefaultRouter`] handles the built-in commands out of
-/// the box, but you can write your own to extend it with custom commands.
+/// To handle timeouts appropriately, you also need to provide a [`Timer`]
+/// implementation. The following are built-in:
+///
+/// * [`timer::StdTimer`], backed by [`std::time`] (feature: `std`).
+///
+/// In addition to the adapter and timer, which define your platform, you need
+/// do provide a [`Router`] for handling incoming commands. [`DefaultRouter`]
+/// handles the built-in commands out of the box, but you can write your own to
+/// extend it with custom commands.
 ///
 /// # Minimal requirements
 ///
@@ -86,12 +92,14 @@ use receiver::{Receiver, StandardReceiver};
 #[derive(Debug)]
 pub struct ErcpBasic<
     A: Adapter,
+    T: Timer,
     R: Router<MAX_LEN>,
     const MAX_LEN: usize = 255,
     Re: Receiver = StandardReceiver<MAX_LEN>,
 > {
     receiver: Re,
     connection: Connection<A>,
+    timer: T,
     router: R,
 }
 
@@ -101,18 +109,24 @@ pub struct ErcpBasic<
 pub struct Commander<
     'a,
     A: Adapter,
+    T: Timer,
     R: Router<MAX_LEN>,
     const MAX_LEN: usize,
     Re: Receiver,
 > {
-    ercp: &'a mut ErcpBasic<A, R, MAX_LEN, Re>,
+    ercp: &'a mut ErcpBasic<A, T, R, MAX_LEN, Re>,
 }
 
 // TODO: Put elsewhere.
 const EOT: u8 = 0x04;
 
-impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
-    ErcpBasic<A, R, MAX_LEN, Re>
+impl<
+        A: Adapter,
+        T: Timer,
+        R: Router<MAX_LEN>,
+        const MAX_LEN: usize,
+        Re: Receiver,
+    > ErcpBasic<A, T, R, MAX_LEN, Re>
 {
     /// Instantiates an ERCP Basic driver.
     ///
@@ -121,9 +135,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// ```
     /// use ercp_basic::{ErcpBasic, DefaultRouter};
     ///
-    /// # use ercp_basic::Adapter;
+    /// # use ercp_basic::{Adapter, Timer};
     /// #
     /// # struct SomeAdapter;
+    /// # struct SomeTimer;
     /// #
     /// # impl SomeAdapter { fn new() -> Self { SomeAdapter } }
     /// #
@@ -133,25 +148,35 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
+    /// # impl Timer for SomeTimer {
+    /// #    type Instant = u8;
+    /// #    type Duration = u8;
+    /// #    fn now(&mut self) -> u8 { 0 }
+    /// # }
+    /// #
     /// // Instantiate an adapter matching your underlying layer.
     /// let adapter = SomeAdapter::new(/* parameters omitted */);
+    ///
+    /// // Select a timer matching your platform.
+    /// let timer = SomeTimer;
     ///
     /// // Instantiate an ERCP Basic driver using the default router. Here we
     /// // need to annotate the type, because the compiler is not (yet) able to
     /// // infer it when it contains a default const generic.
-    /// let ercp: ErcpBasic<_, _> = ErcpBasic::new(adapter, DefaultRouter);
+    /// let ercp = ErcpBasic::<_, _, _>::new(adapter, timer, DefaultRouter);
     /// ```
-    pub fn new(adapter: A, router: R) -> Self {
+    pub fn new(adapter: A, timer: T, router: R) -> Self {
         Self {
             receiver: Receiver::new(),
             router,
             connection: Connection::new(adapter),
+            timer,
         }
     }
 
-    /// Releases the `adapter` and `router`.
-    pub fn release(self) -> (A, R) {
-        (self.connection.release(), self.router)
+    /// Releases the `adapter`, `timer` and `router`.
+    pub fn release(self) -> (A, T, R) {
+        (self.connection.release(), self.timer, self.router)
     }
 
     /// Blocks until a command has been received an processes it.
@@ -169,9 +194,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// # Example
     ///
     /// ```no_run
-    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, Timer};
     /// #
     /// # struct DummyAdapter;
+    /// # struct DummyTimer;
     /// #
     /// # impl Adapter for DummyAdapter {
     /// #    type Error = ();
@@ -179,7 +205,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
-    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
+    /// # impl Timer for DummyTimer {
+    /// #    type Instant = u8;
+    /// #    type Duration = u8;
+    /// #    fn now(&mut self) -> u8 { 0 }
+    /// # }
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _, _>::new(DummyAdapter, DummyTimer, DefaultRouter);
     /// // Call accept_command in a loop to continuously accept commands.
     /// loop {
     ///     if let Err(e) = ercp.accept_command(&mut ()) {
@@ -221,14 +253,15 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// # Example
     ///
     /// ```no_run
-    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
-    /// #
-    /// # struct Context<'a> {
-    /// #    ercp: &'a mut ErcpBasic::<DummyAdapter, DefaultRouter>,
-    /// #    ercp_context: &'a mut (),
-    /// # }
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, Timer};
     /// #
     /// # struct DummyAdapter;
+    /// # struct DummyTimer;
+    /// #
+    /// # struct Context<'a> {
+    /// #    ercp: &'a mut ErcpBasic::<DummyAdapter, DummyTimer, DefaultRouter>,
+    /// #    ercp_context: &'a mut (),
+    /// # }
     /// #
     /// # impl Adapter for DummyAdapter {
     /// #    type Error = ();
@@ -236,9 +269,15 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
+    /// # impl Timer for DummyTimer {
+    /// #    type Instant = u8;
+    /// #    type Duration = u8;
+    /// #    fn now(&mut self) -> u8 { 0 }
+    /// # }
+    /// #
     /// # fn spawn_task(task: impl Fn(Context)) {}
     /// #
-    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
+    /// # let mut ercp = ErcpBasic::<_, _, _>::new(DummyAdapter, DummyTimer, DefaultRouter);
     /// // This is the “data available” event handler for your connection.
     /// fn data_available(ctx: Context) {
     ///     // As data is available, you need first to handle it.
@@ -287,9 +326,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// # Example
     ///
     /// ```
-    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, Timer};
     /// #
     /// # struct DummyAdapter;
+    /// # struct DummyTimer;
     /// #
     /// # impl Adapter for DummyAdapter {
     /// #    type Error = ();
@@ -297,7 +337,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
-    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
+    /// # impl Timer for DummyTimer {
+    /// #    type Instant = u8;
+    /// #    type Duration = u8;
+    /// #    fn now(&mut self) -> u8 { 0 }
+    /// # }
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _, _>::new(DummyAdapter, DummyTimer, DefaultRouter);
     /// // You should call handle_data_fallible in a loop to handle the errors,
     /// // yet avoiding to drop some data. If it returns Ok(Ok(())), that means
     /// // there is no more data to handle.
@@ -352,9 +398,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// this way:
     ///
     /// ```
-    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic};
+    /// # use ercp_basic::{Adapter, DefaultRouter, ErcpBasic, Timer};
     /// #
     /// # struct DummyAdapter;
+    /// # struct DummyTimer;
     /// #
     /// # impl Adapter for DummyAdapter {
     /// #    type Error = ();
@@ -362,7 +409,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
     /// # }
     /// #
-    /// # let mut ercp = ErcpBasic::<_, _>::new(DummyAdapter, DefaultRouter);
+    /// # impl Timer for DummyTimer {
+    /// #    type Instant = u8;
+    /// #    type Duration = u8;
+    /// #    fn now(&mut self) -> u8 { 0 }
+    /// # }
+    /// #
+    /// # let mut ercp = ErcpBasic::<_, _, _>::new(DummyAdapter, DummyTimer, DefaultRouter);
     /// if let Err(e) = ercp.process(&mut ()) {
     ///     // Do something with the error.
     /// }
@@ -410,12 +463,13 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// ```
     /// use ercp_basic::{
     ///     error::CommandResult, Adapter, Command, DefaultRouter, ErcpBasic,
+    ///     Timer,
     /// };
     ///
     /// // It is always a good idea to represent the peer device as a struct,
     /// // owning an ERCP Basic driver instance.
-    /// struct MyDevice<A: Adapter> {
-    ///     ercp: ErcpBasic<A, DefaultRouter>,
+    /// struct MyDevice<A: Adapter, T: Timer> {
+    ///     ercp: ErcpBasic<A, T, DefaultRouter>,
     /// }
     ///
     /// // When a command can return an error, you should create a type for
@@ -427,8 +481,8 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     /// const SOME_COMMAND: u8 = 0x42;
     /// const SOME_COMMAND_REPLY: u8 = 0x43;
     ///
-    /// impl<A: Adapter> MyDevice<A> {
-    ///     fn new(ercp: ErcpBasic<A, DefaultRouter>) -> Self {
+    /// impl<A: Adapter, T: Timer> MyDevice<A, T> {
+    ///     fn new(ercp: ErcpBasic<A, T, DefaultRouter>) -> Self {
     ///         Self { ercp }
     ///     }
     ///
@@ -470,10 +524,10 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
     ///     }
     /// }
     /// ```
-    pub fn command<T>(
+    pub fn command<RT>(
         &mut self,
-        mut callback: impl FnMut(Commander<A, R, MAX_LEN, Re>) -> T,
-    ) -> T {
+        mut callback: impl FnMut(Commander<A, T, R, MAX_LEN, Re>) -> RT,
+    ) -> RT {
         let result = callback(Commander { ercp: self });
         self.reset_state();
         result
@@ -766,10 +820,11 @@ impl<A: Adapter, R: Router<MAX_LEN>, const MAX_LEN: usize, Re: Receiver>
 impl<
         'a,
         A: Adapter,
+        T: Timer,
         R: Router<MAX_LEN>,
         const MAX_LEN: usize,
         Re: Receiver,
-    > Commander<'a, A, R, MAX_LEN, Re>
+    > Commander<'a, A, T, R, MAX_LEN, Re>
 {
     /// Sends a command to the peer device, and waits for a reply.
     ///
@@ -834,6 +889,7 @@ impl<
 mod tests {
     use super::*;
     use connection::tests::TestAdapter;
+    use timer::StdTimer;
 
     use proptest::collection::vec;
     use proptest::prelude::*;
@@ -957,20 +1013,26 @@ mod tests {
     ////////////////////////////// Test setup //////////////////////////////
 
     fn setup(
-        test: impl Fn(ErcpBasic<TestAdapter, TestRouter, 255, TestReceiver>),
+        test: impl Fn(
+            ErcpBasic<TestAdapter, StdTimer, TestRouter, 255, TestReceiver>,
+        ),
     ) {
         let adapter = TestAdapter::default();
+        let timer = StdTimer;
         let router = TestRouter::default();
-        let ercp = ErcpBasic::new(adapter, router);
+        let ercp = ErcpBasic::new(adapter, timer, router);
         test(ercp);
     }
 
     fn setup_commander(
-        test: impl Fn(Commander<TestAdapter, TestRouter, 255, TestReceiver>),
+        test: impl Fn(
+            Commander<TestAdapter, StdTimer, TestRouter, 255, TestReceiver>,
+        ),
     ) {
         let adapter = TestAdapter::default();
+        let timer = StdTimer;
         let router = TestRouter::default();
-        let mut ercp = ErcpBasic::new(adapter, router);
+        let mut ercp = ErcpBasic::new(adapter, timer, router);
         let commander = Commander { ercp: &mut ercp };
         test(commander);
     }

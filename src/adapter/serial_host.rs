@@ -26,7 +26,9 @@ use crate::adapter::Adapter;
 ///
 /// ```no_run
 /// use std::time::Duration;
-/// use ercp_basic::{adapter::SerialPortAdapter, DefaultRouter, ErcpBasic};
+/// use ercp_basic::{
+///     adapter::SerialPortAdapter, DefaultRouter, ErcpBasic, timer::StdTimer,
+/// };
 ///
 /// let port = serialport::new("/dev/ttyUSB0", 115_200)
 ///     .timeout(Duration::from_millis(10))
@@ -34,7 +36,7 @@ use crate::adapter::Adapter;
 ///     .unwrap();
 ///
 /// let adapter = SerialPortAdapter::new(port);
-/// let ercp: ErcpBasic<_, _, 255> = ErcpBasic::new(adapter, DefaultRouter);
+/// let ercp = ErcpBasic::<_, _, _>::new(adapter, StdTimer, DefaultRouter);
 /// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "serial-host")))]
 pub struct SerialPortAdapter {

@@ -210,9 +210,10 @@ use crate::ErcpBasic;
 ///     // Initialise your resources.
 ///     let mut led = Led::init();
 ///
-///     # use ercp_basic::Adapter;
+///     # use ercp_basic::{Adapter, Timer};
 ///     #
 ///     # struct SomeAdapter;
+///     # struct SomeTimer;
 ///     #
 ///     # impl SomeAdapter { fn new() -> Self { SomeAdapter } }
 ///     #
@@ -222,9 +223,16 @@ use crate::ErcpBasic;
 ///     #    fn write(&mut self, byte: u8) -> Result<(), ()> { Ok(()) }
 ///     # }
 ///     #
+///     # impl Timer for SomeTimer {
+///     #    type Instant = u8;
+///     #    type Duration = u8;
+///     #    fn now(&mut self) -> u8 { 0 }
+///     # }
+///     #
 ///     // Initialise the ERCP Basic driver with your router.
 ///     let adapter = SomeAdapter::new();
-///     let mut ercp: ErcpBasic<_, _> = ErcpBasic::new(adapter, ApplicationRouter);
+///     let timer = SomeTimer;
+///     let mut ercp: ErcpBasic<_, _, _> = ErcpBasic::new(adapter, timer, ApplicationRouter);
 ///
 ///     // Gather your driveable resources.
 ///     let mut resources = DriveableResources { led };

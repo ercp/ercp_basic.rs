@@ -48,12 +48,22 @@ use super::Adapter;
 /// #   }
 /// # }
 /// #
+/// # use ercp_basic::Timer;
+/// #
+/// # struct SomeTimer;
+/// #
+/// # impl Timer for SomeTimer {
+/// #    type Instant = u8;
+/// #    type Duration = u8;
+/// #    fn now(&mut  self) -> u8 { 0 }
+/// # }
+/// #
 /// use hal::serial::Serial; // Typical embedded_hal::serial implementation.
 /// use ercp_basic::{adapter::SerialAdapter, DefaultRouter, ErcpBasic};
 ///
 /// let serial = Serial::new(/* parameters omitted */);
 /// let adapter = SerialAdapter::new(serial);
-/// let ercp: ErcpBasic<_, _, 255> = ErcpBasic::new(adapter, DefaultRouter);
+/// let ercp = ErcpBasic::<_, _, _>::new(adapter, SomeTimer, DefaultRouter);
 /// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "serial")))]
 pub struct SerialAdapter<S: Read<u8> + Write<u8>> {
