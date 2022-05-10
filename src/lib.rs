@@ -493,7 +493,11 @@ impl<
     ///     // Using two levels of results helps to separate the command-specific
     ///     // errors `E` from the system-level `CommandError` (i.e. I/O errors
     ///     // and frame errors).
-    ///     fn some_command(&mut self, arg: u8) -> CommandResult<u8, SomeCommandError, A::Error> {
+    ///     fn some_command(
+    ///         &mut self,
+    ///         arg: u8,
+    ///         timeout: Option<T::Duration>
+    ///     ) -> CommandResult<u8, SomeCommandError, A::Error> {
     ///         // The ERCP Basic driver itself cannot transcieve commands. By
     ///         // calling the command method, you gain access to a commander
     ///         // you can then use to actually transcieve.
@@ -508,7 +512,7 @@ impl<
     ///             // reply.
     ///             //
     ///             // Note that we can use `?` to propagate system-level errors.
-    ///             let reply = commander.transcieve(command)?;
+    ///             let reply = commander.transcieve(command, timeout)?;
     ///
     ///             // 3. Check if the reply is correct and use its value.
     ///             if reply.code() == SOME_COMMAND_REPLY && reply.length() == 1 {
@@ -552,7 +556,7 @@ impl<
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     pub fn ping(&mut self) -> CommandResult<(), PingError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(ping!())?;
+            let reply = commander.transcieve(ping!(), None)?;
 
             if reply.code() == ACK {
                 Ok(Ok(()))
@@ -573,7 +577,7 @@ impl<
     /// `Ok(Err(ResetError::UnhandledCommand))`.
     pub fn reset(&mut self) -> CommandResult<(), ResetError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(reset!())?;
+            let reply = commander.transcieve(reset!(), None)?;
 
             match reply.code() {
                 ACK => Ok(Ok(())),
@@ -601,7 +605,7 @@ impl<
         &mut self,
     ) -> CommandResult<Version, ProtocolError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(protocol!())?;
+            let reply = commander.transcieve(protocol!(), None)?;
 
             if reply.code() == PROTOCOL_REPLY && reply.length() == 3 {
                 let version = Version {
@@ -636,7 +640,7 @@ impl<
         version: &mut [u8],
     ) -> CommandResult<usize, VersionError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(version!(component))?;
+            let reply = commander.transcieve(version!(component), None)?;
 
             if reply.code() == VERSION_REPLY {
                 let length = reply.value().len();
@@ -664,7 +668,7 @@ impl<
         component: u8,
     ) -> CommandResult<String, VersionAsStringError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(version!(component))?;
+            let reply = commander.transcieve(version!(component), None)?;
 
             if reply.code() == VERSION_REPLY {
                 Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
@@ -685,7 +689,7 @@ impl<
         &mut self,
     ) -> CommandResult<u8, MaxLengthError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(max_length!())?;
+            let reply = commander.transcieve(max_length!(), None)?;
 
             if reply.code() == MAX_LENGTH_REPLY && reply.length() == 1 {
                 Ok(Ok(reply.value()[0]))
@@ -710,7 +714,7 @@ impl<
         description: &mut [u8],
     ) -> CommandResult<usize, DescriptionError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(description!())?;
+            let reply = commander.transcieve(description!(), None)?;
 
             if reply.code() == DESCRIPTION_REPLY {
                 let length = reply.value().len();
@@ -737,7 +741,7 @@ impl<
         &mut self,
     ) -> CommandResult<String, DescriptionAsStringError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(description!())?;
+            let reply = commander.transcieve(description!(), None)?;
 
             if reply.code() == DESCRIPTION_REPLY {
                 Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
@@ -784,7 +788,7 @@ impl<
                 }
             };
 
-            let reply = commander.transcieve(command)?;
+            let reply = commander.transcieve(command, None)?;
 
             if reply.code() == ACK {
                 Ok(Ok(()))
@@ -833,16 +837,14 @@ impl<
     pub fn transcieve(
         &mut self,
         command: Command,
+        timeout: Option<T::Duration>,
     ) -> Result<Command, CommandError<A::Error>> {
         self.ercp
             .connection
             .send(command)
             .map_err(CommandError::IoError)?;
 
-        self.wait_for_command_fallible()
-            .map_err(CommandError::IoError)?
-            .map_err(Into::into)
-            .map_err(CommandError::ReceivedFrameError)?;
+        self.wait_for_command_fallible(timeout)?;
 
         let reply = self
             .ercp
@@ -868,25 +870,37 @@ impl<
     /// Blocks until a complete frame has been received.
     fn wait_for_command_fallible(
         &mut self,
-    ) -> Result<Result<(), ReceiveError>, A::Error> {
+        timeout: Option<T::Duration>,
+    ) -> Result<(), CommandError<A::Error>> {
+        let start = self.ercp.timer.now();
+
         while !self.ercp.complete_frame_received() {
             // TODO: Do different things depending on features.
 
             // TODO: Only with the blocking feature.
-            if let Err(error) = self.ercp.handle_data_fallible()? {
-                return Ok(Err(error));
-            }
+            self.ercp
+                .handle_data_fallible()
+                .map_err(CommandError::IoError)?
+                .map_err(Into::into)
+                .map_err(CommandError::ReceivedFrameError)?;
 
             // TODO: WFI on Cortex-M.
-            // TODO: Timeout (idea: use a struct field)
+
+            if let Some(timeout) = timeout {
+                if self.ercp.timer.now() >= start + timeout {
+                    return Err(CommandError::Timeout);
+                }
+            }
         }
 
-        Ok(Ok(()))
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
     use connection::tests::TestAdapter;
     use timer::StdTimer;
@@ -1392,7 +1406,7 @@ mod tests {
                 commander.ercp.receiver.check_frame.result =
                     Ok(OwnedCommand::default());
 
-                assert!(commander.transcieve(command).is_ok());
+                assert!(commander.transcieve(command, None).is_ok());
                 assert_eq!(
                     commander.ercp.connection.adapter().test_receive(),
                     expected_frame
@@ -1413,7 +1427,7 @@ mod tests {
                 commander.ercp.receiver.check_frame.result =
                     Ok(OwnedCommand::from(&reply));
 
-                assert_eq!(commander.transcieve(ping!()), Ok(reply));
+                assert_eq!(commander.transcieve(ping!(), None), Ok(reply));
             });
         }
     }
@@ -1423,7 +1437,7 @@ mod tests {
         setup_commander(|mut commander| {
             commander.ercp.connection.adapter().write_error = Some(());
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::IoError(()))
             );
         });
@@ -1434,7 +1448,7 @@ mod tests {
         setup_commander(|mut commander| {
             commander.ercp.connection.adapter().read_error = Some(());
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::IoError(()))
             );
         });
@@ -1448,7 +1462,7 @@ mod tests {
                 Err(FrameError::InvalidCrc);
 
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::InvalidCrc
                 ))
@@ -1465,7 +1479,7 @@ mod tests {
                 Err(FrameError::TooLong);
 
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::TooLong
                 ))
@@ -1482,7 +1496,7 @@ mod tests {
                 Some(vec![Err(ReceiveError::UnexpectedValue)]);
 
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::UnexpectedValue
                 ))
@@ -1498,7 +1512,7 @@ mod tests {
                 Some(vec![Err(ReceiveError::NotEot)]);
 
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::NotEot
                 ))
@@ -1514,11 +1528,35 @@ mod tests {
                 Some(vec![Err(ReceiveError::Overflow)]);
 
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::Overflow
                 ))
             );
+        })
+    }
+
+    #[test]
+    fn transcieve_returns_an_error_when_there_is_no_reply_after_timeout() {
+        setup_commander(|mut commander| {
+            assert_eq!(
+                commander.transcieve(ping!(), Some(Duration::from_millis(1))),
+                Err(CommandError::Timeout),
+            );
+        })
+    }
+
+    #[test]
+    fn transcieve_returns_after_the_timeout() {
+        setup_commander(|mut commander| {
+            let timeout = Duration::from_millis(100);
+
+            let before = Instant::now();
+            commander.transcieve(ping!(), Some(timeout)).err();
+            let elapsed = before.elapsed();
+
+            assert!(elapsed > timeout);
+            assert!(elapsed < timeout + timeout / 2);
         })
     }
 
@@ -1530,7 +1568,7 @@ mod tests {
             commander.ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::SentFrameError(FrameError::InvalidCrc))
             );
         });
@@ -1544,7 +1582,7 @@ mod tests {
             commander.ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                commander.transcieve(ping!()),
+                commander.transcieve(ping!(), None),
                 Err(CommandError::SentFrameError(FrameError::TooLong))
             );
         });
