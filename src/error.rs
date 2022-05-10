@@ -64,6 +64,8 @@ pub enum CommandError<IoError> {
     ReceivedFrameError(ReceivedFrameError),
     /// The peer has reported an error with the frame it has received.
     SentFrameError(FrameError),
+    /// No valid frame has been received before the timeout.
+    Timeout,
 }
 
 /// A typical command result.
