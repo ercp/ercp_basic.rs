@@ -26,6 +26,7 @@ pub mod adapter;
 pub mod command;
 pub mod error;
 pub mod router;
+pub mod timer;
 pub mod version;
 
 mod connection;
@@ -36,6 +37,7 @@ pub use adapter::Adapter;
 pub use command::Command;
 pub use error::*;
 pub use router::{DefaultRouter, Router};
+pub use timer::Timer;
 pub use version::Version;
 
 use command::{
