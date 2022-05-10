@@ -14,6 +14,12 @@
 
 //! Timers.
 
+#[cfg(any(feature = "std", test))]
+mod std_timer;
+
+#[cfg(any(feature = "std", test))]
+pub use std_timer::StdTimer;
+
 use core::ops::{Add, Sub};
 
 /// A timer.
