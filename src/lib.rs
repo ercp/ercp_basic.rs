@@ -908,6 +908,8 @@ mod tests {
     use proptest::collection::vec;
     use proptest::prelude::*;
 
+    const TIMEOUT: Option<Duration> = Some(Duration::from_nanos(1));
+
     #[derive(Debug)]
     struct TestReceiver {
         receive: ReceiveInfo,
@@ -1406,7 +1408,7 @@ mod tests {
                 commander.ercp.receiver.check_frame.result =
                     Ok(OwnedCommand::default());
 
-                assert!(commander.transcieve(command, None).is_ok());
+                assert!(commander.transcieve(command, TIMEOUT).is_ok());
                 assert_eq!(
                     commander.ercp.connection.adapter().test_receive(),
                     expected_frame
@@ -1427,7 +1429,7 @@ mod tests {
                 commander.ercp.receiver.check_frame.result =
                     Ok(OwnedCommand::from(&reply));
 
-                assert_eq!(commander.transcieve(ping!(), None), Ok(reply));
+                assert_eq!(commander.transcieve(ping!(), TIMEOUT), Ok(reply));
             });
         }
     }
@@ -1437,7 +1439,7 @@ mod tests {
         setup_commander(|mut commander| {
             commander.ercp.connection.adapter().write_error = Some(());
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::IoError(()))
             );
         });
@@ -1448,7 +1450,7 @@ mod tests {
         setup_commander(|mut commander| {
             commander.ercp.connection.adapter().read_error = Some(());
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::IoError(()))
             );
         });
@@ -1462,7 +1464,7 @@ mod tests {
                 Err(FrameError::InvalidCrc);
 
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::InvalidCrc
                 ))
@@ -1479,7 +1481,7 @@ mod tests {
                 Err(FrameError::TooLong);
 
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::TooLong
                 ))
@@ -1496,7 +1498,7 @@ mod tests {
                 Some(vec![Err(ReceiveError::UnexpectedValue)]);
 
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::UnexpectedValue
                 ))
@@ -1512,7 +1514,7 @@ mod tests {
                 Some(vec![Err(ReceiveError::NotEot)]);
 
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::NotEot
                 ))
@@ -1528,7 +1530,7 @@ mod tests {
                 Some(vec![Err(ReceiveError::Overflow)]);
 
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::ReceivedFrameError(
                     ReceivedFrameError::Overflow
                 ))
@@ -1540,7 +1542,7 @@ mod tests {
     fn transcieve_returns_an_error_when_there_is_no_reply_after_timeout() {
         setup_commander(|mut commander| {
             assert_eq!(
-                commander.transcieve(ping!(), Some(Duration::from_millis(1))),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::Timeout),
             );
         })
@@ -1568,7 +1570,7 @@ mod tests {
             commander.ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::SentFrameError(FrameError::InvalidCrc))
             );
         });
@@ -1582,7 +1584,7 @@ mod tests {
             commander.ercp.receiver.check_frame.result = Ok(reply);
 
             assert_eq!(
-                commander.transcieve(ping!(), None),
+                commander.transcieve(ping!(), TIMEOUT),
                 Err(CommandError::SentFrameError(FrameError::TooLong))
             );
         });
