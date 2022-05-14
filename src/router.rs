@@ -633,6 +633,7 @@ mod tests {
     use crate::{description, max_length, ping, protocol};
 
     use proptest::collection::vec;
+    use proptest::num::u8;
     use proptest::prelude::*;
 
     #[test]
@@ -654,7 +655,7 @@ mod tests {
     proptest! {
         #[test]
         fn to_nack_replies_nothing(
-            reason in vec(0..=u8::MAX, 0..=u8::MAX as usize)
+            reason in vec(u8::ANY, 0..=u8::MAX as usize)
         ) {
             let mut router: Box<dyn Router<255, Context = _>> =
                 Box::new(DefaultRouter);
@@ -700,7 +701,7 @@ mod tests {
     proptest! {
         #[test]
         fn to_other_components_version_replies_unknown_component(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
         ) {
             prop_assume!(
                 component != component::FIRMWARE
@@ -720,7 +721,7 @@ mod tests {
     proptest! {
         #[test]
         fn to_version_with_invalid_number_of_parameters_replies_an_error(
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(value.len() != 1);
 
@@ -774,8 +775,8 @@ mod tests {
     proptest! {
         #[test]
         fn to_any_other_command_replies_a_nack_unknown_command(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(
                 code != PING

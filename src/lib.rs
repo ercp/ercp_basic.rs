@@ -919,6 +919,7 @@ mod tests {
     use timer::StdTimer;
 
     use proptest::collection::vec;
+    use proptest::num::u8;
     use proptest::prelude::*;
 
     const TIMEOUT: Option<Duration> = Some(Duration::from_nanos(1));
@@ -1078,7 +1079,7 @@ mod tests {
     proptest! {
         #[test]
         fn handle_data_calls_receive_while_there_is_data_to_handle(
-            frame in vec(0..=u8::MAX, 0..=1000),
+            frame in vec(u8::ANY, 0..=1000),
         ) {
             setup(|mut ercp| {
                 ercp.connection.adapter().test_send(&frame);
@@ -1091,7 +1092,7 @@ mod tests {
     proptest! {
         #[test]
         fn handle_data_calls_receive_with_bytes_from_the_frame(
-            frame in vec(0..=u8::MAX, 0..=1000),
+            frame in vec(u8::ANY, 0..=1000),
         ) {
             setup(|mut ercp| {
                 ercp.connection.adapter().test_send(&frame);
@@ -1161,7 +1162,7 @@ mod tests {
     proptest! {
         #[test]
         fn handle_data_fallible_calls_receive_while_there_is_data_to_handle(
-            frame in vec(0..=u8::MAX, 0..=1000),
+            frame in vec(u8::ANY, 0..=1000),
         ) {
             setup(|mut ercp| {
                 ercp.connection.adapter().test_send(&frame);
@@ -1174,7 +1175,7 @@ mod tests {
     proptest! {
         #[test]
         fn handle_data_fallible_calls_receive_with_bytes_from_the_frame(
-            frame in vec(0..=u8::MAX, 0..=1000),
+            frame in vec(u8::ANY, 0..=1000),
         ) {
             setup(|mut ercp| {
                 ercp.connection.adapter().test_send(&frame);
@@ -1293,8 +1294,8 @@ mod tests {
     proptest! {
         #[test]
         fn process_passes_the_command_to_the_router(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             setup(|mut ercp| {
                 let command = Command::new(code, &value).unwrap();
@@ -1318,8 +1319,8 @@ mod tests {
     proptest! {
         #[test]
         fn process_sends_the_reply_if_there_is_some(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize)
         ) {
             setup(|mut ercp| {
                 let reply = Command::new(code, &value).unwrap();
@@ -1409,8 +1410,8 @@ mod tests {
     proptest! {
         #[test]
         fn transcieve_writes_a_frame_on_the_connection(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             setup_commander(|mut commander| {
                 let command = Command::new(code, &value).unwrap();
@@ -1433,8 +1434,8 @@ mod tests {
     proptest! {
      #[test]
         fn transcieve_returns_the_reply(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             setup_commander(|mut commander| {
                 let reply = Command::new(code, &value).unwrap();
@@ -1606,8 +1607,8 @@ mod tests {
     proptest! {
         #[test]
         fn notify_writes_a_frame_on_the_connection(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             setup(|mut ercp| {
                 let command = Command::new(code, &value).unwrap();
@@ -1625,8 +1626,8 @@ mod tests {
     proptest! {
         #[test]
         fn notify_returns_an_error_on_write_error(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             setup(|mut ercp| {
                 let command = Command::new(code, &value).unwrap();
@@ -1685,8 +1686,8 @@ mod tests {
     proptest! {
         #[test]
         fn ping_returns_an_error_on_unexpected_replies(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != ACK);
 
@@ -1762,8 +1763,8 @@ mod tests {
     proptest! {
         #[test]
         fn reset_returns_an_error_on_unexpected_replies(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != ACK && code != NACK);
 
@@ -1826,9 +1827,9 @@ mod tests {
     proptest! {
         #[test]
         fn protocol_returns_the_received_protocol_version(
-            major in 0..=u8::MAX,
-            minor in 0..=u8::MAX,
-            patch in 0..=u8::MAX,
+            major in u8::ANY,
+            minor in u8::ANY,
+            patch in u8::ANY,
         ) {
             setup(|mut ercp| {
                 let version = Version { major, minor, patch };
@@ -1848,8 +1849,8 @@ mod tests {
     proptest! {
         #[test]
         fn protocol_returns_an_error_on_unexpected_replies(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != PROTOCOL_REPLY || value.len() != 3);
 
@@ -1894,7 +1895,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn version_sends_a_version_command(component in 0..=u8::MAX) {
+        fn version_sends_a_version_command(component in u8::ANY) {
             setup(|mut ercp| {
                 let expected_frame = version!(component).as_frame();
                 let reply = version_reply!("").into();
@@ -1916,7 +1917,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_copies_the_reply_to_the_provided_buffer(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
@@ -1942,7 +1943,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_returns_the_length_of_the_reply(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
@@ -1961,7 +1962,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_returns_an_error_if_the_buffer_is_too_short_for_reply(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
@@ -1980,9 +1981,9 @@ mod tests {
     proptest! {
         #[test]
         fn version_returns_an_error_on_unexpected_replies(
-            component in 0..=u8::MAX,
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            component in u8::ANY,
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != VERSION_REPLY);
 
@@ -2002,7 +2003,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_returns_an_error_on_command_errors(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
         ) {
             setup(|mut ercp| {
                 ercp.connection.adapter().write_error = Some(());
@@ -2017,7 +2018,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_returns_an_error_when_there_is_no_reply_after_timeout(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
         ) {
             setup(|mut ercp| {
                 assert_eq!(
@@ -2031,7 +2032,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_resets_the_receiver(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
         ) {
             setup(|mut ercp| {
                 ercp.receiver.complete_frame_received = true;
@@ -2046,7 +2047,7 @@ mod tests {
     proptest! {
         #[test]
             fn version_as_string_sends_a_version_command(
-                component in 0..=u8::MAX,
+                component in u8::ANY,
             ) {
             setup(|mut ercp| {
                 let expected_frame = version!(component).as_frame();
@@ -2069,7 +2070,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_as_string_returns_the_version(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
             version in ".{1,100}",
         ) {
             setup(|mut ercp| {
@@ -2088,9 +2089,9 @@ mod tests {
     proptest! {
         #[test]
         fn version_as_string_returns_an_error_on_unexpected_replies(
-            component in 0..=u8::MAX,
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            component in u8::ANY,
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != VERSION_REPLY);
 
@@ -2110,7 +2111,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_as_string_returns_an_error_on_command_errors(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
         ) {
             setup(|mut ercp| {
                 ercp.connection.adapter().write_error = Some(());
@@ -2125,7 +2126,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_as_string_returns_an_error_when_there_is_no_reply_after_timeout(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
         ) {
             setup(|mut ercp| {
                 assert_eq!(
@@ -2139,7 +2140,7 @@ mod tests {
     proptest! {
         #[test]
         fn version_as_string_resets_the_receiver(
-            component in 0..=u8::MAX,
+            component in u8::ANY,
         ) {
             setup(|mut ercp| {
                 ercp.receiver.complete_frame_received = true;
@@ -2171,7 +2172,7 @@ mod tests {
     proptest! {
         #[test]
         fn max_length_returns_the_received_maximum_length(
-            max_length in 0..=u8::MAX,
+            max_length in u8::ANY,
         ) {
             setup(|mut ercp| {
                 let reply = max_length_reply!(max_length).into();
@@ -2189,8 +2190,8 @@ mod tests {
     proptest! {
         #[test]
         fn max_length_returns_an_error_on_unexpected_replies(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != MAX_LENGTH_REPLY || value.len() != 1);
 
@@ -2315,8 +2316,8 @@ mod tests {
     proptest! {
         #[test]
         fn description_returns_an_error_on_unexpected_replies(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != DESCRIPTION_REPLY);
 
@@ -2402,8 +2403,8 @@ mod tests {
     proptest! {
         #[test]
         fn description_as_string_returns_an_error_on_unexpected_replies(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != DESCRIPTION_REPLY);
 
@@ -2505,8 +2506,8 @@ mod tests {
         #[test]
         fn sync_log_returns_an_error_on_unexpected_replies(
             message in ".{0,100}",
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             prop_assume!(code != ACK);
 

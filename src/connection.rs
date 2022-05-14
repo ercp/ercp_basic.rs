@@ -85,6 +85,7 @@ pub mod tests {
     use std::collections::VecDeque;
 
     use proptest::collection::vec;
+    use proptest::num::u8;
     use proptest::prelude::*;
 
     #[derive(Debug, Default)]
@@ -139,7 +140,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn read_reads_a_byte_from_the_adapter(byte in 0..=u8::MAX) {
+        fn read_reads_a_byte_from_the_adapter(byte in u8::ANY) {
             setup(|mut connection| {
                 connection.adapter.test_send(&[byte]);
                 assert_eq!(connection.read(), Ok(Some(byte)));
@@ -164,7 +165,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn write_write_a_byte_with_the_adapter(byte in 0..=u8::MAX) {
+        fn write_write_a_byte_with_the_adapter(byte in u8::ANY) {
             setup(|mut connection| {
                 assert_eq!(connection.write(byte), Ok(()));
                 assert_eq!(connection.adapter.test_receive(), &[byte]);
@@ -174,7 +175,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn write_returns_an_error_on_write_error(byte in 0..=u8::MAX) {
+        fn write_returns_an_error_on_write_error(byte in u8::ANY) {
             setup(|mut connection| {
                 connection.adapter.write_error = Some(());
                 assert_eq!(connection.write(byte), Err(()));
@@ -187,8 +188,8 @@ pub mod tests {
     proptest! {
         #[test]
         fn send_writes_a_frame_on_the_connection(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             setup(|mut connection| {
                 let command = Command::new(code, &value).unwrap();
@@ -203,8 +204,8 @@ pub mod tests {
     proptest! {
         #[test]
         fn send_returns_an_error_if_there_is_one(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             setup(|mut connection| {
                 let command = Command::new(code, &value).unwrap();

@@ -186,6 +186,7 @@ pub mod tests {
     use crate::crc::crc;
 
     use proptest::collection::vec;
+    use proptest::num::u8;
     use proptest::prelude::*;
 
     /////////////////////////////// Strategy ///////////////////////////////
@@ -194,8 +195,8 @@ pub mod tests {
         fn receiver(
             state: State
         ) (
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize)
         ) -> StandardReceiver<255> {
             let mut receiver = StandardReceiver::new();
 
@@ -261,7 +262,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn receive_returns_an_error_on_random_data(value in 0..=u8::MAX) {
+        fn receive_returns_an_error_on_random_data(value in u8::ANY) {
             // 'E' starts a receive sequence, so we do not want it.
             prop_assume!(value != b'E');
 
@@ -275,7 +276,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn receive_does_not_advance_on_random_data(value in 0..=u8::MAX) {
+        fn receive_does_not_advance_on_random_data(value in u8::ANY) {
             // 'E' starts a receive sequence, so we do not want it.
             prop_assume!(value != b'E');
 
@@ -315,7 +316,7 @@ pub mod tests {
         #[test]
         fn receive_returns_an_error_on_unexpected_sequence(
             num in 0..5,
-            value in 0..=u8::MAX,
+            value in u8::ANY,
         ) {
             match num {
                 0 => prop_assume!(value != b'E'),
@@ -352,7 +353,7 @@ pub mod tests {
         #[test]
         fn receive_switches_back_to_ready_on_unexpected_sequence(
             num in 0..5,
-            value in 0..=u8::MAX,
+            value in u8::ANY,
         ) {
             match num {
                 0 => prop_assume!(value != b'E'),
@@ -400,7 +401,7 @@ pub mod tests {
         #[test]
         fn receive_at_code_stage_returns_ok(
             mut receiver in receiver(State::Receiving(Field::Code)),
-            code in 0..=u8::MAX,
+            code in u8::ANY,
         ) {
             assert_eq!(receiver.receive(code), Ok(()));
         }
@@ -410,7 +411,7 @@ pub mod tests {
         #[test]
         fn receive_at_code_stage_stores_command_code(
             mut receiver in receiver(State::Receiving(Field::Code)),
-            code in 0..=u8::MAX,
+            code in u8::ANY,
         ) {
             receiver.receive(code).ok();
             assert_eq!(receiver.rx_frame.code(), code);
@@ -421,7 +422,7 @@ pub mod tests {
         #[test]
         fn receive_at_code_stage_goes_to_length_stage(
             mut receiver in receiver(State::Receiving(Field::Code)),
-            code in 0..=u8::MAX,
+            code in u8::ANY,
         ) {
             receiver.receive(code).ok();
             assert_eq!(receiver.state, State::Receiving(Field::Length));
@@ -434,7 +435,7 @@ pub mod tests {
         #[test]
         fn receive_at_length_stage_returns_ok(
             mut receiver in receiver(State::Receiving(Field::Length)),
-            length in 0..=u8::MAX,
+            length in u8::ANY,
         ) {
             assert_eq!(receiver.receive(length), Ok(()));
         }
@@ -444,7 +445,7 @@ pub mod tests {
         #[test]
         fn receive_at_length_stage_stores_length(
             mut receiver in receiver(State::Receiving(Field::Length)),
-            length in 0..=u8::MAX,
+            length in u8::ANY,
         ) {
             receiver.receive(length).ok();
             assert_eq!(receiver.rx_frame.length(), length);
@@ -521,7 +522,7 @@ pub mod tests {
         #[test]
         fn receive_at_value_stage_returns_ok(
             mut receiver in receiver(State::Receiving(Field::Length)),
-            value in vec(0..=u8::MAX, 1..=u8::MAX as usize),
+            value in vec(u8::ANY, 1..=u8::MAX as usize),
         ) {
             receiver.receive(value.len() as u8).ok();
 
@@ -535,7 +536,7 @@ pub mod tests {
         #[test]
         fn receive_at_value_stage_stores_value(
             mut receiver in receiver(State::Receiving(Field::Length)),
-            value in vec(0..=u8::MAX, 1..=u8::MAX as usize),
+            value in vec(u8::ANY, 1..=u8::MAX as usize),
         ) {
             receiver.receive(value.len() as u8).ok();
 
@@ -550,7 +551,7 @@ pub mod tests {
         #[test]
         fn receive_remains_at_value_stage_until_it_has_been_completely_received(
             mut receiver in receiver(State::Receiving(Field::Length)),
-            value in vec(0..=u8::MAX, 1..=u8::MAX as usize),
+            value in vec(u8::ANY, 1..=u8::MAX as usize),
         ) {
             receiver.receive(value.len() as u8).ok();
 
@@ -565,7 +566,7 @@ pub mod tests {
         #[test]
         fn receive_waits_for_crc_when_value_has_been_received(
             mut receiver in receiver(State::Receiving(Field::Length)),
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             receiver.receive(value.len() as u8).ok();
 
@@ -583,7 +584,7 @@ pub mod tests {
         #[test]
         fn receive_at_crc_stage_returns_ok(
             mut receiver in receiver(State::Receiving(Field::Crc)),
-            crc in 0..=u8::MAX,
+            crc in u8::ANY,
         ) {
             assert_eq!(receiver.receive(crc), Ok(()));
         }
@@ -593,7 +594,7 @@ pub mod tests {
         #[test]
         fn receive_at_crc_stage_stores_crc(
             mut receiver in receiver(State::Receiving(Field::Crc)),
-            crc in 0..=u8::MAX,
+            crc in u8::ANY,
         ) {
             receiver.receive(crc).ok();
             assert_eq!(receiver.rx_frame.crc(), crc);
@@ -604,7 +605,7 @@ pub mod tests {
         #[test]
         fn receive_at_crc_stage_goes_to_eot_stage(
             mut receiver in receiver(State::Receiving(Field::Crc)),
-            crc in 0..=u8::MAX,
+            crc in u8::ANY,
         ) {
             receiver.receive(crc).ok();
             assert_eq!(receiver.state, State::Receiving(Field::Eot));
@@ -636,7 +637,7 @@ pub mod tests {
         #[test]
         fn receive_at_eot_stage_returns_an_error_on_random_value(
             mut receiver in receiver(State::Receiving(Field::Eot)),
-            not_eot in 0..=u8::MAX,
+            not_eot in u8::ANY,
         ) {
             prop_assume!(not_eot != EOT);
 
@@ -648,7 +649,7 @@ pub mod tests {
         #[test]
         fn receive_at_eot_stage_goes_back_to_ready_on_random_value(
             mut receiver in receiver(State::Receiving(Field::Eot)),
-            not_eot in 0..=u8::MAX,
+            not_eot in u8::ANY,
         ) {
             prop_assume!(not_eot != EOT);
 
@@ -661,7 +662,7 @@ pub mod tests {
         #[test]
         fn receive_at_eot_stage_resets_the_rx_frame_on_random_value(
             mut receiver in receiver(State::Receiving(Field::Eot)),
-            not_eot in 0..=u8::MAX,
+            not_eot in u8::ANY,
         ) {
             prop_assume!(not_eot != EOT);
 
@@ -676,7 +677,7 @@ pub mod tests {
         #[test]
         fn receive_at_complete_stage_returns_an_error(
             mut receiver in receiver(State::Complete),
-            value in 0..=u8::MAX,
+            value in u8::ANY,
         ) {
             assert_eq!(receiver.receive(value), Err(ReceiveError::Overflow));
         }
@@ -686,7 +687,7 @@ pub mod tests {
         #[test]
         fn receive_at_complete_stage_does_not_change_the_state(
             mut receiver in receiver(State::Complete),
-            value in 0..=u8::MAX,
+            value in u8::ANY,
         ) {
             receiver.receive(value).ok();
             assert_eq!(receiver.state, State::Complete);
@@ -697,7 +698,7 @@ pub mod tests {
         #[test]
         fn receive_at_complete_stage_does_not_change_the_buffer(
             mut receiver in receiver(State::Complete),
-            value in 0..=u8::MAX,
+            value in u8::ANY,
         ) {
             let original_rx_frame = receiver.rx_frame.clone();
 

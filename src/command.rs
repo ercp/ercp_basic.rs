@@ -620,6 +620,7 @@ macro_rules! description_reply {
 mod test {
     use super::*;
     use proptest::collection::vec;
+    use proptest::num::u8;
     use proptest::prelude::*;
 
     ///////////////////////////// Constructors /////////////////////////////
@@ -627,8 +628,8 @@ mod test {
     proptest! {
         #[test]
         fn new_returns_a_command(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize)
         ) {
             let expected = Command {
                 code,
@@ -642,8 +643,8 @@ mod test {
     proptest! {
         #[test]
         fn new_returns_an_error_if_value_is_too_long(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, (u8::MAX as usize + 1)..1000)
+            code in u8::ANY,
+            value in vec(u8::ANY, (u8::MAX as usize + 1)..1000)
         ) {
             assert_eq!(Command::new(code, &value), Err(NewCommandError::TooLong))
         }
@@ -653,7 +654,7 @@ mod test {
 
     proptest! {
         #[test]
-        fn code_returns_the_code(code in 0..=u8::MAX) {
+        fn code_returns_the_code(code in u8::ANY) {
             let command = Command {
                 code,
                 value: &[],
@@ -666,7 +667,7 @@ mod test {
     proptest! {
         #[test]
         fn value_returns_the_value(
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             let command = Command {
                 code: 0x00,
@@ -680,7 +681,7 @@ mod test {
     proptest! {
         #[test]
         fn length_returns_the_value_length(
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             let command = Command {
                 code: 0x00,
@@ -694,8 +695,8 @@ mod test {
     proptest! {
         #[test]
         fn crc_returns_the_crc(
-            code in 0..=u8::MAX,
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize),
+            code in u8::ANY,
+            value in vec(u8::ANY, 0..=u8::MAX as usize),
         ) {
             let command = Command {
                 code,

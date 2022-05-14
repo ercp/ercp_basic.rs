@@ -122,12 +122,13 @@ mod test {
     use super::*;
     use crate::crc::crc;
     use proptest::collection::vec;
+    use proptest::num::u8;
     use proptest::prelude::*;
 
     /////////////////////////////// Strategy ///////////////////////////////
 
     fn frame_buffer() -> impl Strategy<Value = FrameBuffer<255>> {
-        (0..=u8::MAX, vec(0..=u8::MAX, 0..=u8::MAX as usize)).prop_map(
+        (u8::ANY, vec(u8::ANY, 0..=u8::MAX as usize)).prop_map(
             |(code, value)| FrameBuffer {
                 code,
                 length: value.len() as u8,
@@ -211,7 +212,7 @@ mod test {
 
     proptest! {
         #[test]
-        fn set_code_sets_the_code(code in 0..=u8::MAX) {
+        fn set_code_sets_the_code(code in u8::ANY) {
             let mut frame_buffer = FrameBuffer::<255>::new();
             frame_buffer.set_code(code);
 
@@ -246,7 +247,7 @@ mod test {
     proptest! {
         #[test]
         fn push_value_pushes_value_in_the_buffer_when_there_is_space(
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
+            value in vec(u8::ANY, 0..=u8::MAX as usize)
         ) {
             let mut frame_buffer = FrameBuffer::<255>::new();
             frame_buffer.set_length(value.len() as u8).unwrap();
@@ -261,7 +262,7 @@ mod test {
     proptest! {
         #[test]
         fn push_value_returns_an_error_when_buffer_is_full(
-            value in 0..=u8::MAX
+            value in u8::ANY
         ) {
             let mut frame_buffer = FrameBuffer::<1>::new();
             frame_buffer.set_length(1).unwrap();
@@ -277,8 +278,8 @@ mod test {
     proptest! {
         #[test]
         fn push_value_returns_an_error_if_value_value_is_complete(
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize - 1),
-            next in 0..=u8::MAX
+            value in vec(u8::ANY, 0..=u8::MAX as usize - 1),
+            next in u8::ANY
         ) {
             let mut frame_buffer = FrameBuffer::<255>::new();
             frame_buffer.set_length(value.len() as u8).unwrap();
@@ -296,7 +297,7 @@ mod test {
 
     proptest! {
         #[test]
-        fn set_crc_sets_the_crc(crc in 0..=u8::MAX) {
+        fn set_crc_sets_the_crc(crc in u8::ANY) {
             let mut frame_buffer = FrameBuffer::<255>::new();
             frame_buffer.set_crc(crc);
 
@@ -309,7 +310,7 @@ mod test {
     proptest! {
         #[test]
         fn value_is_complete_returns_true_if_all_bytes_have_been_received(
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize)
+            value in vec(u8::ANY, 0..=u8::MAX as usize)
         ) {
             let mut frame_buffer = FrameBuffer::<255>::new();
             frame_buffer.set_length(value.len() as u8).unwrap();
@@ -325,7 +326,7 @@ mod test {
     proptest! {
         #[test]
         fn value_is_complete_returns_false_if_not_all_bytes_have_been_received(
-            value in vec(0..=u8::MAX, 0..=u8::MAX as usize - 1)
+            value in vec(u8::ANY, 0..=u8::MAX as usize - 1)
         ) {
             let mut frame_buffer = FrameBuffer::<255>::new();
             frame_buffer.set_length(value.len() as u8 + 1).unwrap();
@@ -354,7 +355,7 @@ mod test {
         #[test]
         fn check_frame_returns_an_error_if_crc_is_invalid(
             mut frame_buffer in frame_buffer(),
-            bad_crc in 0..=u8::MAX
+            bad_crc in u8::ANY
         ) {
             prop_assume!(
                 bad_crc != crc(frame_buffer.code(), frame_buffer.value())
