@@ -554,9 +554,12 @@ impl<
     /// then blocks until the peer device replies. The result is `Ok(Ok(()))`
     /// when the reply is an
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
-    pub fn ping(&mut self) -> CommandResult<(), PingError, A::Error> {
+    pub fn ping(
+        &mut self,
+        timeout: Option<T::Duration>,
+    ) -> CommandResult<(), PingError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(ping!(), None)?;
+            let reply = commander.transcieve(ping!(), timeout)?;
 
             if reply.code() == ACK {
                 Ok(Ok(()))
@@ -575,9 +578,12 @@ impl<
     /// [`Ack()`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#ack).
     /// If the peer device does not support resets, this returns
     /// `Ok(Err(ResetError::UnhandledCommand))`.
-    pub fn reset(&mut self) -> CommandResult<(), ResetError, A::Error> {
+    pub fn reset(
+        &mut self,
+        timeout: Option<T::Duration>,
+    ) -> CommandResult<(), ResetError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(reset!(), None)?;
+            let reply = commander.transcieve(reset!(), timeout)?;
 
             match reply.code() {
                 ACK => Ok(Ok(())),
@@ -603,9 +609,10 @@ impl<
     /// patch)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#protocol_replymajor-minor-patch).
     pub fn protocol(
         &mut self,
+        timeout: Option<T::Duration>,
     ) -> CommandResult<Version, ProtocolError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(protocol!(), None)?;
+            let reply = commander.transcieve(protocol!(), timeout)?;
 
             if reply.code() == PROTOCOL_REPLY && reply.length() == 3 {
                 let version = Version {
@@ -638,9 +645,10 @@ impl<
         &mut self,
         component: u8,
         version: &mut [u8],
+        timeout: Option<T::Duration>,
     ) -> CommandResult<usize, VersionError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(version!(component), None)?;
+            let reply = commander.transcieve(version!(component), timeout)?;
 
             if reply.code() == VERSION_REPLY {
                 let length = reply.value().len();
@@ -666,9 +674,10 @@ impl<
     pub fn version_as_string(
         &mut self,
         component: u8,
+        timeout: Option<T::Duration>,
     ) -> CommandResult<String, VersionAsStringError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(version!(component), None)?;
+            let reply = commander.transcieve(version!(component), timeout)?;
 
             if reply.code() == VERSION_REPLY {
                 Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
@@ -687,9 +696,10 @@ impl<
     /// [`Max_Length_Reply(max_length)`](https://github.com/ercp/specifications/blob/v0.1.0/spec/ercp_basic.md#max_length_replymax_length).
     pub fn max_length(
         &mut self,
+        timeout: Option<T::Duration>,
     ) -> CommandResult<u8, MaxLengthError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(max_length!(), None)?;
+            let reply = commander.transcieve(max_length!(), timeout)?;
 
             if reply.code() == MAX_LENGTH_REPLY && reply.length() == 1 {
                 Ok(Ok(reply.value()[0]))
@@ -712,9 +722,10 @@ impl<
     pub fn description(
         &mut self,
         description: &mut [u8],
+        timeout: Option<T::Duration>,
     ) -> CommandResult<usize, DescriptionError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(description!(), None)?;
+            let reply = commander.transcieve(description!(), timeout)?;
 
             if reply.code() == DESCRIPTION_REPLY {
                 let length = reply.value().len();
@@ -739,9 +750,10 @@ impl<
     #[cfg(any(feature = "std", test))]
     pub fn description_as_string(
         &mut self,
+        timeout: Option<T::Duration>,
     ) -> CommandResult<String, DescriptionAsStringError, A::Error> {
         self.command(|mut commander| {
-            let reply = commander.transcieve(description!(), None)?;
+            let reply = commander.transcieve(description!(), timeout)?;
 
             if reply.code() == DESCRIPTION_REPLY {
                 Ok(String::from_utf8(reply.value().into()).map_err(Into::into))
@@ -779,6 +791,7 @@ impl<
     pub fn sync_log(
         &mut self,
         message: &str,
+        timeout: Option<T::Duration>,
     ) -> CommandResult<(), LogError, A::Error> {
         self.command(|mut commander| {
             let command = match Command::log(message) {
@@ -788,7 +801,7 @@ impl<
                 }
             };
 
-            let reply = commander.transcieve(command, None)?;
+            let reply = commander.transcieve(command, timeout)?;
 
             if reply.code() == ACK {
                 Ok(Ok(()))
@@ -1661,7 +1674,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(ack!().into());
 
-            assert_eq!(ercp.ping().unwrap(), Ok(()));
+            assert_eq!(ercp.ping(TIMEOUT).unwrap(), Ok(()));
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -1683,7 +1696,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.ping().unwrap(),
+                    ercp.ping(TIMEOUT).unwrap(),
                     Err(PingError::UnexpectedReply)
                 );
             });
@@ -1694,7 +1707,14 @@ mod tests {
     fn ping_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(());
-            assert_eq!(ercp.ping(), Err(CommandError::IoError(())));
+            assert_eq!(ercp.ping(TIMEOUT), Err(CommandError::IoError(())));
+        });
+    }
+
+    #[test]
+    fn ping_returns_an_error_when_there_is_no_reply_after_timeout() {
+        setup(|mut ercp| {
+            assert_eq!(ercp.ping(TIMEOUT), Err(CommandError::Timeout));
         });
     }
 
@@ -1704,7 +1724,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-            ercp.ping().ok();
+            ercp.ping(TIMEOUT).ok();
             assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
@@ -1717,7 +1737,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(ack!().into());
 
-            assert_eq!(ercp.reset().unwrap(), Ok(()));
+            assert_eq!(ercp.reset(TIMEOUT).unwrap(), Ok(()));
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -1733,7 +1753,7 @@ mod tests {
             ercp.receiver.check_frame.result = Ok(reply.into());
 
             assert_eq!(
-                ercp.reset().unwrap(),
+                ercp.reset(TIMEOUT).unwrap(),
                 Err(ResetError::UnhandledCommand)
             );
         });
@@ -1753,7 +1773,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.reset().unwrap(),
+                    ercp.reset(TIMEOUT).unwrap(),
                     Err(ResetError::UnexpectedReply)
                 );
             });
@@ -1764,7 +1784,14 @@ mod tests {
     fn reset_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(());
-            assert_eq!(ercp.reset(), Err(CommandError::IoError(())));
+            assert_eq!(ercp.reset(TIMEOUT), Err(CommandError::IoError(())));
+        });
+    }
+
+    #[test]
+    fn reset_returns_an_error_when_there_is_no_reply_after_timeout() {
+        setup(|mut ercp| {
+            assert_eq!(ercp.reset(TIMEOUT), Err(CommandError::Timeout));
         });
     }
 
@@ -1774,7 +1801,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-            ercp.reset().ok();
+            ercp.reset(TIMEOUT).ok();
             assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
@@ -1788,7 +1815,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(reply);
 
-            assert!(ercp.protocol().unwrap().is_ok());
+            assert!(ercp.protocol(TIMEOUT).unwrap().is_ok());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -1811,7 +1838,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.protocol().unwrap(),
+                    ercp.protocol(TIMEOUT).unwrap(),
                     Ok(Version { major, minor, patch })
                 );
             })
@@ -1832,7 +1859,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.protocol().unwrap(),
+                    ercp.protocol(TIMEOUT).unwrap(),
                     Err(ProtocolError::UnexpectedReply)
                 );
             });
@@ -1843,7 +1870,14 @@ mod tests {
     fn protocol_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(());
-            assert_eq!(ercp.protocol(), Err(CommandError::IoError(())));
+            assert_eq!(ercp.protocol(TIMEOUT), Err(CommandError::IoError(())));
+        });
+    }
+
+    #[test]
+    fn protocol_returns_an_error_when_there_is_no_reply_after_timeout() {
+        setup(|mut ercp| {
+            assert_eq!(ercp.protocol(TIMEOUT), Err(CommandError::Timeout));
         });
     }
 
@@ -1853,7 +1887,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-            ercp.protocol().ok();
+            ercp.protocol(TIMEOUT).ok();
             assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
@@ -1868,7 +1902,9 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(reply);
 
-                assert!(ercp.version(component, &mut []).unwrap().is_ok());
+                assert!(
+                    ercp.version(component, &mut [], TIMEOUT).unwrap().is_ok()
+                );
                 assert_eq!(
                     ercp.connection.adapter().test_receive(),
                     expected_frame
@@ -1890,7 +1926,11 @@ mod tests {
 
                 let mut buffer = [0; 255];
 
-                assert!(ercp.version(component, &mut buffer).unwrap().is_ok());
+                assert!(
+                    ercp.version(component, &mut buffer, TIMEOUT)
+                        .unwrap()
+                        .is_ok()
+                );
                 assert_eq!(
                     &buffer[0..version.as_bytes().len()],
                     version.as_bytes()
@@ -1911,7 +1951,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.version(component, &mut [0; 255]).unwrap(),
+                    ercp.version(component, &mut [0; 255], TIMEOUT).unwrap(),
                     Ok(version.as_bytes().len())
                 );
             });
@@ -1930,7 +1970,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.version(component, &mut []).unwrap(),
+                    ercp.version(component, &mut [], TIMEOUT).unwrap(),
                     Err(VersionError::BufferTooShort)
                 );
             });
@@ -1952,7 +1992,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.version(component, &mut []).unwrap(),
+                    ercp.version(component, &mut [], TIMEOUT).unwrap(),
                     Err(VersionError::UnexpectedReply)
                 );
             });
@@ -1967,8 +2007,22 @@ mod tests {
             setup(|mut ercp| {
                 ercp.connection.adapter().write_error = Some(());
                 assert_eq!(
-                    ercp.version(component, &mut []),
+                    ercp.version(component, &mut [], TIMEOUT),
                     Err(CommandError::IoError(()))
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_returns_an_error_when_there_is_no_reply_after_timeout(
+            component in 0..=u8::MAX,
+        ) {
+            setup(|mut ercp| {
+                assert_eq!(
+                    ercp.version(component, &mut [], TIMEOUT),
+                    Err(CommandError::Timeout),
                 );
             });
         }
@@ -1983,7 +2037,7 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.version(component, &mut []).ok();
+                ercp.version(component, &mut [], TIMEOUT).ok();
                 assert_eq!(ercp.receiver.reset.call_count, 1);
             });
         }
@@ -2001,7 +2055,9 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(reply);
 
-                assert!(ercp.version_as_string(component).unwrap().is_ok());
+                assert!(
+                    ercp.version_as_string(component, TIMEOUT).unwrap().is_ok()
+                );
                 assert_eq!(
                     ercp.connection.adapter().test_receive(),
                     expected_frame
@@ -2021,7 +2077,8 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(reply);
 
-                let result = ercp.version_as_string(component).unwrap();
+                let result =
+                    ercp.version_as_string(component, TIMEOUT).unwrap();
                 assert!(result.is_ok());
                 assert_eq!(result.unwrap(), version);
             });
@@ -2043,7 +2100,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.version_as_string(component).unwrap(),
+                    ercp.version_as_string(component, TIMEOUT).unwrap(),
                     Err(VersionAsStringError::UnexpectedReply)
                 );
             });
@@ -2058,8 +2115,22 @@ mod tests {
             setup(|mut ercp| {
                 ercp.connection.adapter().write_error = Some(());
                 assert_eq!(
-                    ercp.version_as_string(component),
+                    ercp.version_as_string(component, TIMEOUT),
                     Err(CommandError::IoError(()))
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn version_as_string_returns_an_error_when_there_is_no_reply_after_timeout(
+            component in 0..=u8::MAX,
+        ) {
+            setup(|mut ercp| {
+                assert_eq!(
+                    ercp.version_as_string(component, TIMEOUT),
+                    Err(CommandError::Timeout),
                 );
             });
         }
@@ -2074,7 +2145,7 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.version_as_string(component).ok();
+                ercp.version_as_string(component, TIMEOUT).ok();
                 assert_eq!(ercp.receiver.reset.call_count, 1);
             });
         }
@@ -2089,7 +2160,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(reply);
 
-            assert!(ercp.max_length().unwrap().is_ok());
+            assert!(ercp.max_length(TIMEOUT).unwrap().is_ok());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -2108,7 +2179,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.max_length().unwrap(),
+                    ercp.max_length(TIMEOUT).unwrap(),
                     Ok(max_length)
                 );
             });
@@ -2129,7 +2200,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.max_length().unwrap(),
+                    ercp.max_length(TIMEOUT).unwrap(),
                     Err(MaxLengthError::UnexpectedReply)
                 );
             });
@@ -2140,7 +2211,17 @@ mod tests {
     fn max_length_returns_an_error_on_command_errors() {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(());
-            assert_eq!(ercp.max_length(), Err(CommandError::IoError(())));
+            assert_eq!(
+                ercp.max_length(TIMEOUT),
+                Err(CommandError::IoError(()))
+            );
+        });
+    }
+
+    #[test]
+    fn max_length_returns_an_error_when_there_is_no_reply_after_timeout() {
+        setup(|mut ercp| {
+            assert_eq!(ercp.max_length(TIMEOUT), Err(CommandError::Timeout),);
         });
     }
 
@@ -2150,7 +2231,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-            ercp.max_length().ok();
+            ercp.max_length(TIMEOUT).ok();
             assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
@@ -2164,7 +2245,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(reply);
 
-            assert!(ercp.description(&mut []).unwrap().is_ok());
+            assert!(ercp.description(&mut [], TIMEOUT).unwrap().is_ok());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -2184,7 +2265,9 @@ mod tests {
 
                 let mut buffer = [0; 255];
 
-                assert!(ercp.description(&mut buffer).unwrap().is_ok());
+                assert!(
+                    ercp.description(&mut buffer, TIMEOUT).unwrap().is_ok()
+                );
                 assert_eq!(
                     &buffer[0..description.as_bytes().len()],
                     description.as_bytes()
@@ -2204,7 +2287,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.description(&mut [0; 255]).unwrap(),
+                    ercp.description(&mut [0; 255], TIMEOUT).unwrap(),
                     Ok(description.as_bytes().len())
                 );
             });
@@ -2222,7 +2305,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.description(&mut []).unwrap(),
+                    ercp.description(&mut [], TIMEOUT).unwrap(),
                     Err(DescriptionError::BufferTooShort)
                 );
             });
@@ -2243,7 +2326,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.description(&mut []).unwrap(),
+                    ercp.description(&mut [], TIMEOUT).unwrap(),
                     Err(DescriptionError::UnexpectedReply)
                 );
             });
@@ -2255,8 +2338,18 @@ mod tests {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(());
             assert_eq!(
-                ercp.description(&mut []),
+                ercp.description(&mut [], TIMEOUT),
                 Err(CommandError::IoError(()))
+            );
+        });
+    }
+
+    #[test]
+    fn description_returns_an_error_when_there_is_no_reply_after_timeout() {
+        setup(|mut ercp| {
+            assert_eq!(
+                ercp.description(&mut [], TIMEOUT),
+                Err(CommandError::Timeout),
             );
         });
     }
@@ -2267,7 +2360,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-            ercp.description(&mut []).ok();
+            ercp.description(&mut [], TIMEOUT).ok();
             assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
@@ -2281,7 +2374,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(reply);
 
-            assert!(ercp.description_as_string().unwrap().is_ok());
+            assert!(ercp.description_as_string(TIMEOUT).unwrap().is_ok());
             assert_eq!(
                 ercp.connection.adapter().test_receive(),
                 expected_frame
@@ -2299,7 +2392,7 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(reply);
 
-                let result = ercp.description_as_string().unwrap();
+                let result = ercp.description_as_string(TIMEOUT).unwrap();
                 assert!(result.is_ok());
                 assert_eq!(&result.unwrap(), &description);
             });
@@ -2320,7 +2413,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.description_as_string().unwrap(),
+                    ercp.description_as_string(TIMEOUT).unwrap(),
                     Err(DescriptionAsStringError::UnexpectedReply)
                 );
             });
@@ -2332,8 +2425,19 @@ mod tests {
         setup(|mut ercp| {
             ercp.connection.adapter().write_error = Some(());
             assert_eq!(
-                ercp.description_as_string(),
+                ercp.description_as_string(TIMEOUT),
                 Err(CommandError::IoError(()))
+            );
+        });
+    }
+
+    #[test]
+    fn description_as_string_returns_an_error_when_there_is_no_reply_after_timeout(
+    ) {
+        setup(|mut ercp| {
+            assert_eq!(
+                ercp.description_as_string(TIMEOUT),
+                Err(CommandError::Timeout),
             );
         });
     }
@@ -2344,7 +2448,7 @@ mod tests {
             ercp.receiver.complete_frame_received = true;
             ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-            ercp.description_as_string().ok();
+            ercp.description_as_string(TIMEOUT).ok();
             assert_eq!(ercp.receiver.reset.call_count, 1);
         });
     }
@@ -2388,7 +2492,7 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(ack!().into());
 
-                assert_eq!(ercp.sync_log(&message).unwrap(), Ok(()));
+                assert_eq!(ercp.sync_log(&message, TIMEOUT).unwrap(), Ok(()));
                 assert_eq!(
                     ercp.connection.adapter().test_receive(),
                     expected_frame
@@ -2412,7 +2516,7 @@ mod tests {
                 ercp.receiver.check_frame.result = Ok(reply);
 
                 assert_eq!(
-                    ercp.sync_log(&message).unwrap(),
+                    ercp.sync_log(&message, TIMEOUT).unwrap(),
                     Err(LogError::UnexpectedReply)
                 );
             });
@@ -2427,8 +2531,22 @@ mod tests {
             setup(|mut ercp| {
                 ercp.connection.adapter().write_error = Some(());
                 assert_eq!(
-                    ercp.sync_log(&message),
+                    ercp.sync_log(&message, TIMEOUT),
                     Err(CommandError::IoError(()))
+                );
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn sync_log_returns_an_error_when_there_is_no_reply_after_timeout(
+            message in ".{0,100}",
+        ) {
+            setup(|mut ercp| {
+                assert_eq!(
+                    ercp.sync_log(&message, TIMEOUT),
+                    Err(CommandError::Timeout),
                 );
             });
         }
@@ -2443,7 +2561,7 @@ mod tests {
                 ercp.receiver.complete_frame_received = true;
                 ercp.receiver.check_frame.result = Ok(OwnedCommand::default());
 
-                ercp.sync_log(&message).ok();
+                ercp.sync_log(&message, TIMEOUT).ok();
                 assert_eq!(ercp.receiver.reset.call_count, 1);
             });
         }
