@@ -1,6 +1,6 @@
 [package]
 name = "ercp_basic"
-version = "0.1.0"
+version = "0.1.0-dev"
 authors = ["Jean-Philippe Cugnet <jean-philippe@cugnet.eu>"]
 edition = "2021"
 rust-version = "1.59.0"
