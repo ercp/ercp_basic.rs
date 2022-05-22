@@ -191,3 +191,37 @@ impl From<FromUtf8Error> for CommandReturningStringError {
         Self::FromUtf8Error(error)
     }
 }
+
+#[cfg(feature = "std")]
+impl<IoError> std::fmt::Display for CommandError<IoError> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::IoError(_) => write!(f, "IO error"),
+            Self::ReceivedFrameError(ReceivedFrameError::UnexpectedValue) => {
+                write!(f, "an unexpected start sequence has been received")
+            }
+            Self::ReceivedFrameError(ReceivedFrameError::TooLong) => {
+                write!(f, "the received frame is too long")
+            }
+            Self::ReceivedFrameError(ReceivedFrameError::NotEot) => {
+                write!(f, "the received frame is improperly terminated")
+            }
+            Self::ReceivedFrameError(ReceivedFrameError::InvalidCrc) => {
+                write!(f, "the received frame has an invalid CRC")
+            }
+            Self::ReceivedFrameError(ReceivedFrameError::Overflow) => {
+                write!(
+                    f,
+                    "some data has been received while the previous command is still being processed"
+                )
+            }
+            Self::SentFrameError(FrameError::TooLong) => {
+                write!(f, "the frame is too long for the peer device")
+            }
+            Self::SentFrameError(FrameError::InvalidCrc) => {
+                write!(f, "the peer device has received a corrupted frame")
+            }
+            Self::Timeout => write!(f, "timeout"),
+        }
+    }
+}
