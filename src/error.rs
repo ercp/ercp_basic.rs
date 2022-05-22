@@ -68,6 +68,17 @@ pub enum CommandError<IoError> {
     Timeout,
 }
 
+/// A system-level error that can happen while receiving a command.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ReceivedCommandError<IoError> {
+    /// An error has occured while reading data.
+    IoError(IoError),
+    /// A frame has been received, but it is erroneous.
+    ReceivedFrameError(ReceivedFrameError),
+    /// No valid frame has been received before the timeout.
+    Timeout,
+}
+
 /// A typical command result.
 pub type CommandResult<T, E, IoError> =
     Result<Result<T, E>, CommandError<IoError>>;
@@ -158,6 +169,18 @@ impl From<ReceiveError> for ReceivedFrameError {
             ReceiveError::TooLong => Self::TooLong,
             ReceiveError::NotEot => Self::NotEot,
             ReceiveError::Overflow => Self::Overflow,
+        }
+    }
+}
+
+impl<IoError> From<ReceivedCommandError<IoError>> for CommandError<IoError> {
+    fn from(error: ReceivedCommandError<IoError>) -> Self {
+        match error {
+            ReceivedCommandError::IoError(e) => Self::IoError(e),
+            ReceivedCommandError::ReceivedFrameError(e) => {
+                Self::ReceivedFrameError(e)
+            }
+            ReceivedCommandError::Timeout => Self::Timeout,
         }
     }
 }

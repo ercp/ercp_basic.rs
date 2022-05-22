@@ -880,21 +880,21 @@ impl<
     pub fn receive(
         &mut self,
         timeout: Option<T::Duration>,
-    ) -> Result<Command, CommandError<A::Error>> {
+    ) -> Result<Command, ReceivedCommandError<A::Error>> {
         self.wait_for_command_fallible(timeout)?;
 
         self.ercp
             .receiver
             .check_frame()
             .map_err(Into::into)
-            .map_err(CommandError::ReceivedFrameError)
+            .map_err(ReceivedCommandError::ReceivedFrameError)
     }
 
     /// Blocks until a complete frame has been received.
     fn wait_for_command_fallible(
         &mut self,
         timeout: Option<T::Duration>,
-    ) -> Result<(), CommandError<A::Error>> {
+    ) -> Result<(), ReceivedCommandError<A::Error>> {
         let start = self.ercp.timer.now();
 
         while !self.ercp.complete_frame_received() {
@@ -903,15 +903,15 @@ impl<
             // TODO: Only with the blocking feature.
             self.ercp
                 .handle_data_fallible()
-                .map_err(CommandError::IoError)?
+                .map_err(ReceivedCommandError::IoError)?
                 .map_err(Into::into)
-                .map_err(CommandError::ReceivedFrameError)?;
+                .map_err(ReceivedCommandError::ReceivedFrameError)?;
 
             // TODO: WFI on Cortex-M.
 
             if let Some(timeout) = timeout {
                 if self.ercp.timer.now() >= start + timeout {
-                    return Err(CommandError::Timeout);
+                    return Err(ReceivedCommandError::Timeout);
                 }
             }
         }
