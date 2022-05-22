@@ -857,14 +857,7 @@ impl<
             .send(command)
             .map_err(CommandError::IoError)?;
 
-        self.wait_for_command_fallible(timeout)?;
-
-        let reply = self
-            .ercp
-            .receiver
-            .check_frame()
-            .map_err(Into::into)
-            .map_err(CommandError::ReceivedFrameError)?;
+        let reply = self.receive(timeout)?;
 
         // Check for any frame-level error notification from the peer.
         match (reply.code(), reply.value()) {
@@ -878,6 +871,23 @@ impl<
 
             _ => Ok(reply),
         }
+    }
+
+    /// Blocks until a command has been received.
+    ///
+    /// This function is meant to be used inside a command closure. Please see
+    /// the documentation for [`ErcpBasic::command`].
+    pub fn receive(
+        &mut self,
+        timeout: Option<T::Duration>,
+    ) -> Result<Command, CommandError<A::Error>> {
+        self.wait_for_command_fallible(timeout)?;
+
+        self.ercp
+            .receiver
+            .check_frame()
+            .map_err(Into::into)
+            .map_err(CommandError::ReceivedFrameError)
     }
 
     /// Blocks until a complete frame has been received.
