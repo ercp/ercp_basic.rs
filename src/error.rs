@@ -193,28 +193,37 @@ impl From<FromUtf8Error> for CommandReturningStringError {
 }
 
 #[cfg(feature = "std")]
-impl<IoError> std::fmt::Display for CommandError<IoError> {
+impl std::fmt::Display for ReceivedFrameError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::IoError(_) => write!(f, "IO error"),
-            Self::ReceivedFrameError(ReceivedFrameError::UnexpectedValue) => {
+            Self::UnexpectedValue => {
                 write!(f, "an unexpected start sequence has been received")
             }
-            Self::ReceivedFrameError(ReceivedFrameError::TooLong) => {
+            Self::TooLong => {
                 write!(f, "the received frame is too long")
             }
-            Self::ReceivedFrameError(ReceivedFrameError::NotEot) => {
+            Self::NotEot => {
                 write!(f, "the received frame is improperly terminated")
             }
-            Self::ReceivedFrameError(ReceivedFrameError::InvalidCrc) => {
+            Self::InvalidCrc => {
                 write!(f, "the received frame has an invalid CRC")
             }
-            Self::ReceivedFrameError(ReceivedFrameError::Overflow) => {
+            Self::Overflow => {
                 write!(
                     f,
                     "some data has been received while the previous command is still being processed"
                 )
             }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<IoError> std::fmt::Display for CommandError<IoError> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::IoError(_) => write!(f, "IO error"),
+            Self::ReceivedFrameError(e) => write!(f, "{e}"),
             Self::SentFrameError(FrameError::TooLong) => {
                 write!(f, "the frame is too long for the peer device")
             }
@@ -231,24 +240,7 @@ impl<IoError> std::fmt::Display for ReceivedCommandError<IoError> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::IoError(_) => write!(f, "IO error"),
-            Self::ReceivedFrameError(ReceivedFrameError::UnexpectedValue) => {
-                write!(f, "an unexpected start sequence has been received")
-            }
-            Self::ReceivedFrameError(ReceivedFrameError::TooLong) => {
-                write!(f, "the received frame is too long")
-            }
-            Self::ReceivedFrameError(ReceivedFrameError::NotEot) => {
-                write!(f, "the received frame is improperly terminated")
-            }
-            Self::ReceivedFrameError(ReceivedFrameError::InvalidCrc) => {
-                write!(f, "the received frame has an invalid CRC")
-            }
-            Self::ReceivedFrameError(ReceivedFrameError::Overflow) => {
-                write!(
-                    f,
-                    "some data has been received while the previous command is still being processed"
-                )
-            }
+            Self::ReceivedFrameError(e) => write!(f, "{e}"),
             Self::Timeout => write!(f, "timeout"),
         }
     }
