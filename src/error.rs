@@ -141,7 +141,7 @@ pub enum ResetError {
 pub enum LogError {
     /// The received reply is unexpected.
     UnexpectedReply,
-    /// The log message is too long to fin in a frame.
+    /// The log message is too long to fit in a frame.
     TooLong,
 }
 
@@ -222,6 +222,49 @@ impl<IoError> std::fmt::Display for CommandError<IoError> {
                 write!(f, "the peer device has received a corrupted frame")
             }
             Self::Timeout => write!(f, "timeout"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::fmt::Display for GenericCommandError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnexpectedReply => write!(f, "unexpected reply"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::fmt::Display for CommandWithBufferError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnexpectedReply => write!(f, "unexpected reply"),
+            Self::BufferTooShort => {
+                write!(f, "the provided buffer is too short for the reply")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::fmt::Display for CommandReturningStringError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnexpectedReply => write!(f, "unexpected reply"),
+            Self::FromUtf8Error(_) => {
+                write!(f, "the received string is not valid UTF-8")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::fmt::Display for ResetError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnexpectedReply => write!(f, "unexpected reply"),
+            Self::UnhandledCommand => write!(f, "unhandled command"),
         }
     }
 }
