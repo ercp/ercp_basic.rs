@@ -19,8 +19,8 @@
 #![warn(clippy::redundant_pub_crate)]
 #![warn(clippy::use_self)]
 #![deny(missing_docs)]
-#![deny(unsafe_code)]
 #![deny(unused_must_use)]
+#![forbid(unsafe_code)]
 
 pub mod adapter;
 pub mod command;
