@@ -94,7 +94,7 @@ impl<const MAX_LEN: usize> Receiver for StandardReceiver<MAX_LEN> {
             }
 
             State::Init(init_state) => {
-                if byte == init_state.value() as u8 {
+                if byte == init_state.value() {
                     self.state = init_state.next_state();
                     Ok(())
                 } else {
