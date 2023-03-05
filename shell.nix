@@ -13,8 +13,8 @@ mkShell {
 
     # Project dependencies
     pkgconfig
-    libudev
     libusb
+    udev
 
     # Other tools
     git
